@@ -15,14 +15,6 @@ with open('keys.json', 'r') as file:
 with open('prompt.txt', 'r') as pmt_file:
     instruct = pmt_file.read()
 
-print('-----------------------------------')
-
-asset_list = Helper.preprocess('SWandHW.xlsx', sheet = 'Sheet1')
-
-omnii_sw = Cleaner.clean_text_to_unique(asset_list["Software Version"])
-print('Identified the Software')
-print('-----------------------------------')
-
 def client_setup(): # need to include some try except error handling here
     client = genai.Client(api_key=keys['GEMINI_API_KEY'])
     print('Client successfully established.')
@@ -58,7 +50,7 @@ async def main(eos_list):
     results = await asyncio.gather(*tasks)
 
     # error caching for failed API calls or bad responses
-    success, unsuccess = error_cache(results, eos_list)
+    success, unsuccess = Processing.error_cache(results, eos_list)
 
     print(f"Successfully processed {len(success)} items.")
     
@@ -93,6 +85,13 @@ async def run_async(lst):
     return results, failed_items 
 
 # Run the async function, change this for the script. 
-#results, failed_items = asyncio.run(run_async(sample_list))
+
+print('-----------------------------------')
+asset_list = Helper.preprocess('SWandHW.xlsx', sheet = 'Sheet1')
+
+omnii_sw = Cleaner.clean_text_to_unique(asset_list["Software Version"])
+print('Identified the Software')
+print('-----------------------------------')
+results, failed_items = asyncio.run(run_async(asset_list))
 
 # Post-processing the results
