@@ -296,6 +296,30 @@
     .error-msg { margin-top: 1rem; padding: 0.75rem 1rem; background: #1f0d0d; border: 1px solid #4a1a1a; border-radius: 4px; font-size: 0.72rem; color: var(--danger); display: none; }
     .error-msg.visible { display: block; }
 
+    .toast {
+      position: fixed;
+      top: 1.5rem;
+      left: 50%;
+      transform: translate(-50%, -16px);
+      padding: 0.85rem 1.1rem;
+      background: rgba(255, 92, 56, 0.96);
+      color: #fff7f3;
+      border: 1px solid rgba(255, 255, 255, 0.18);
+      border-radius: 4px;
+      font-size: 0.72rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.22s ease, transform 0.22s ease;
+      z-index: 30;
+      box-shadow: 0 10px 28px rgba(0, 0, 0, 0.28);
+    }
+    .toast.visible {
+      opacity: 1;
+      transform: translate(-50%, 0);
+    }
+
     /* Processing summary */
     .processing-summary {
       margin-top: 0.5rem;
@@ -342,19 +366,21 @@
     thead { position: sticky; top: 0; z-index: 2; }
     thead tr { background: #111; border-bottom: 1px solid var(--border); }
     th { padding: 0.65rem 0.85rem; text-align: left; font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); white-space: nowrap; font-weight: 500; vertical-align: middle; }
-    th:nth-child(1) { width: 40px; }
-    th:nth-child(2) { width: 40%; min-width: 200px; }
-    th:nth-child(3) { width: 80px; text-align: center; }
-    th:nth-child(4) { width: 130px; }
-    th:nth-child(5) { width: 120px; }
-    th:nth-child(6) { width: 44px; text-align: center; }
+    th:nth-child(1) { width: 52px; text-align: center; }
+    th:nth-child(2) { width: 40px; text-align: center; }
+    th:nth-child(3) { width: 40%; min-width: 200px; }
+    th:nth-child(4) { width: 80px; text-align: center; }
+    th:nth-child(5) { width: 130px; }
+    th:nth-child(6) { width: 120px; }
+    th:nth-child(7) { width: 44px; text-align: center; }
     td { padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border); color: var(--text); overflow: hidden; text-overflow: ellipsis; vertical-align: middle; text-align: left; }
-    td:nth-child(1) { width: 40px; }
-    td:nth-child(2) { width: 40%; min-width: 200px; }
-    td:nth-child(3) { width: 80px; }
-    td:nth-child(4) { width: 130px; }
-    td:nth-child(5) { width: 120px; }
-    td:nth-child(6) { width: 44px; text-align: center; }
+    td:nth-child(1) { width: 52px; text-align: center; }
+    td:nth-child(2) { width: 40px; text-align: center; }
+    td:nth-child(3) { width: 40%; min-width: 200px; }
+    td:nth-child(4) { width: 80px; }
+    td:nth-child(5) { width: 130px; }
+    td:nth-child(6) { width: 120px; }
+    td:nth-child(7) { width: 44px; text-align: center; }
     .name-cell { white-space: normal; word-break: break-word; }
     .eos-date-cell { font-weight: 600; color: var(--accent); white-space: nowrap; }
     .type-badge-cell { text-align: center; }
@@ -507,6 +533,19 @@
 
     /* Row status cell */
     .status-cell { text-align: center; width: 44px; }
+    .select-cell { text-align: center; }
+    .row-select,
+    .select-all-checkbox {
+      width: 16px;
+      height: 16px;
+      accent-color: var(--accent);
+      cursor: pointer;
+    }
+    .row-select:focus-visible,
+    .select-all-checkbox:focus-visible {
+      outline: 1px solid var(--accent);
+      outline-offset: 2px;
+    }
     .row-spinner {
       display: none;
       width: 16px; height: 16px;
@@ -593,6 +632,8 @@
   <div class="theme-toggle-icon" id="themeIcon">🌙</div>
   <div class="theme-toggle-label" id="themeLabel">light</div>
 </div>
+
+<div class="toast" id="apiKeyToast">Error: Check Valid API Key</div>
 
 <div class="gemini-badge">
   <div class="gemini-powered">
@@ -745,9 +786,13 @@
   const swTableHead = document.getElementById('swTableHead');
   const swTableBody = document.getElementById('swTableBody');
   const swTableMeta = document.getElementById('swTableMeta');
+  const apiKeyToast = document.getElementById('apiKeyToast');
 
   const ALLOWED = ['.csv', '.xlsx'];
   let currentFile = null;
+  let apiKeyToastTimer = null;
+  const selectedRows = { hw: new Set(), sw: new Set() };
+  const tableTotals = { hw: 0, sw: 0 };
 
   function formatSize(b) {
     if (b < 1024) return b + ' B';
@@ -755,8 +800,54 @@
     return (b / 1048576).toFixed(2) + ' MB';
   }
   function getExt(name) { return name.slice(name.lastIndexOf('.')).toLowerCase(); }
-  function showError(msg) { errorMsg.textContent = msg; errorMsg.classList.add('visible'); }
+  function isApiKeyError(msg) {
+    return /api key not valid|api_key_invalid/i.test(msg || '');
+  }
+
+  function showApiKeyToast() {
+    if (apiKeyToastTimer) clearTimeout(apiKeyToastTimer);
+    apiKeyToast.classList.add('visible');
+    apiKeyToastTimer = setTimeout(() => {
+      apiKeyToast.classList.remove('visible');
+      apiKeyToastTimer = null;
+    }, 5000);
+  }
+
+  function showError(msg) {
+    errorMsg.textContent = msg;
+    errorMsg.classList.add('visible');
+    if (isApiKeyError(msg)) showApiKeyToast();
+  }
   function clearError()   { errorMsg.classList.remove('visible'); }
+
+  function resetSelection(typeKey, total) {
+    selectedRows[typeKey] = new Set(Array.from({ length: total }, (_, index) => index));
+    tableTotals[typeKey] = total;
+  }
+
+  function updateTableMeta(typeKey) {
+    const total = tableTotals[typeKey] || 0;
+    const selected = selectedRows[typeKey].size;
+    const metaElement = typeKey === 'hw' ? hwTableMeta : swTableMeta;
+    metaElement.innerHTML = `<span>${total}</span> rows · <span>${selected}</span> selected`;
+  }
+
+  function syncSelectAllState(typeKey) {
+    const total = tableTotals[typeKey] || 0;
+    const selectAll = document.getElementById(`select-all-${typeKey}`);
+    if (!selectAll) return;
+    const selected = selectedRows[typeKey].size;
+    selectAll.checked = total > 0 && selected === total;
+    selectAll.indeterminate = selected > 0 && selected < total;
+  }
+
+  function buildPipelineUrl() {
+    const params = new URLSearchParams();
+    [...selectedRows.hw].sort((a, b) => a - b).forEach(index => params.append('hw', index));
+    [...selectedRows.sw].sort((a, b) => a - b).forEach(index => params.append('sw', index));
+    const query = params.toString();
+    return query ? `/run-pipeline?${query}` : '/run-pipeline';
+  }
 
   function setFileInfo(file) {
     clearError();
@@ -785,15 +876,37 @@
   function renderTable(data, headElement, bodyElement, type) {
     if (!data || data.length === 0) return false;
 
-    const headers = Object.keys(data[0]);
     const typeLabel = type === 'hardware' ? 'hw' : 'sw';
+    resetSelection(typeLabel, data.length);
 
     // Create header with only at-a-glance columns
     headElement.innerHTML = '';
     const hr = document.createElement('tr');
-    ['', 'Name', 'Type', 'EOS Date', 'Confidence', ''].forEach((h) => {
+    ['', '', 'Name', 'Type', 'EOS Date', 'Confidence', ''].forEach((h, index) => {
       const th = document.createElement('th');
-      th.textContent = h;
+      if (index === 0) {
+        const selectAll = document.createElement('input');
+        selectAll.type = 'checkbox';
+        selectAll.id = `select-all-${typeLabel}`;
+        selectAll.className = 'select-all-checkbox';
+        selectAll.checked = true;
+        selectAll.title = 'Select all rows';
+        selectAll.addEventListener('click', event => event.stopPropagation());
+        selectAll.addEventListener('change', event => {
+          const checked = event.target.checked;
+          bodyElement.querySelectorAll('.row-select').forEach(checkbox => {
+            checkbox.checked = checked;
+          });
+          selectedRows[typeLabel] = checked
+            ? new Set(Array.from({ length: data.length }, (_, rowIndex) => rowIndex))
+            : new Set();
+          updateTableMeta(typeLabel);
+          syncSelectAllState(typeLabel);
+        });
+        th.appendChild(selectAll);
+      } else {
+        th.textContent = h;
+      }
       hr.appendChild(th);
     });
     headElement.appendChild(hr);
@@ -804,6 +917,26 @@
       const tr = document.createElement('tr');
       tr.className = 'expandable-row';
       tr.dataset.rowId = `row-${typeLabel}-${i}`;
+
+      const tdSelect = document.createElement('td');
+      tdSelect.className = 'select-cell';
+      const selectInput = document.createElement('input');
+      selectInput.type = 'checkbox';
+      selectInput.className = 'row-select';
+      selectInput.checked = true;
+      selectInput.dataset.type = typeLabel;
+      selectInput.dataset.index = String(i);
+      selectInput.title = `Select ${row.Name || ''}`;
+      selectInput.addEventListener('click', event => event.stopPropagation());
+      selectInput.addEventListener('change', event => {
+        const rowIndex = Number(event.target.dataset.index);
+        if (event.target.checked) selectedRows[typeLabel].add(rowIndex);
+        else selectedRows[typeLabel].delete(rowIndex);
+        updateTableMeta(typeLabel);
+        syncSelectAllState(typeLabel);
+      });
+      tdSelect.appendChild(selectInput);
+      tr.appendChild(tdSelect);
       
       // Chevron cell
       const tdChevron = document.createElement('td');
@@ -874,7 +1007,7 @@
       expandTr.style.display = 'none';
       
       const expandTd = document.createElement('td');
-      expandTd.colSpan = 6;
+      expandTd.colSpan = 7;
       
       // Build the expanded content
       const summary = row.Summary || '';
@@ -973,6 +1106,9 @@
       bodyElement.appendChild(expandTr);
     });
 
+    updateTableMeta(typeLabel);
+    syncSelectAllState(typeLabel);
+
     return true;
   }
 
@@ -1046,18 +1182,20 @@
 
       if (hasHW) {
         renderTable(data.hw_data, hwTableHead, hwTableBody, 'hardware');
-        hwTableMeta.innerHTML = `<span>${data.hw_data.length}</span> rows`;
         hwTableSection.style.display = 'block';
       } else {
         hwTableSection.style.display = 'none';
+        tableTotals.hw = 0;
+        selectedRows.hw = new Set();
       }
 
       if (hasSW) {
         renderTable(data.sw_data, swTableHead, swTableBody, 'software');
-        swTableMeta.innerHTML = `<span>${data.sw_data.length}</span> rows`;
         swTableSection.style.display = 'block';
       } else {
         swTableSection.style.display = 'none';
+        tableTotals.sw = 0;
+        selectedRows.sw = new Set();
       }
 
       if (hasHW || hasSW) {
@@ -1087,10 +1225,19 @@
     resetBox.classList.remove('visible');
     dropZone.classList.remove('hidden');
     clearError();
+    apiKeyToast.classList.remove('visible');
+    if (apiKeyToastTimer) {
+      clearTimeout(apiKeyToastTimer);
+      apiKeyToastTimer = null;
+    }
     hwTableHead.innerHTML = '';
     hwTableBody.innerHTML = '';
     swTableHead.innerHTML = '';
     swTableBody.innerHTML = '';
+    tableTotals.hw = 0;
+    tableTotals.sw = 0;
+    selectedRows.hw = new Set();
+    selectedRows.sw = new Set();
     // Reset pipeline button and timer
     stopTimer();
     pipelineTimerValue.textContent = '00:00.0';
@@ -1151,13 +1298,11 @@
     // Render test data
     if (testData.hw_data && testData.hw_data.length > 0) {
       renderTable(testData.hw_data, hwTableHead, hwTableBody, 'hardware');
-      hwTableMeta.innerHTML = `<span>${testData.hw_data.length}</span> rows`;
       hwTableSection.style.display = 'block';
     }
 
     if (testData.sw_data && testData.sw_data.length > 0) {
       renderTable(testData.sw_data, swTableHead, swTableBody, 'software');
-      swTableMeta.innerHTML = `<span>${testData.sw_data.length}</span> rows`;
       swTableSection.style.display = 'block';
     }
 
@@ -1259,12 +1404,12 @@
     const tr = document.querySelector(`tr[data-row-id="row-${type}-${index}"]`);
     if (!tr) return;
 
-    // EOS Date — td:nth-child(4)
-    const tdEOS = tr.cells[3];
+    // EOS Date column
+    const tdEOS = tr.cells[4];
     if (tdEOS && result['EOS Date']) tdEOS.textContent = result['EOS Date'];
 
-    // Confidence — td:nth-child(5)
-    const tdConf = tr.cells[4];
+    // Confidence column
+    const tdConf = tr.cells[5];
     if (tdConf && result.Confidence !== undefined) {
       const c = parseFloat(result.Confidence) || 0;
       const w = Math.max(c * 100, 5);
@@ -1334,6 +1479,11 @@
 
   // ── Pipeline trigger ──────────────────────────────────────────────────────
   btnTriggerPipeline.addEventListener('click', () => {
+    if (selectedRows.hw.size === 0 && selectedRows.sw.size === 0) {
+      showError('Please select at least one item before running the AI pipeline.');
+      return;
+    }
+
     btnTriggerPipeline.disabled = true;
     btnTriggerPipeline.querySelector('.pipeline-text').textContent = 'Pipeline Running…';
     clearError();
@@ -1342,7 +1492,7 @@
     let liveCount = 0;
     let cachedCount = 0;
 
-    const es = new EventSource('/run-pipeline');
+    const es = new EventSource(buildPipelineUrl());
 
     es.addEventListener('item-start', e => {
       const d = JSON.parse(e.data);
@@ -1364,6 +1514,7 @@
     es.addEventListener('item-error', e => {
       const d = JSON.parse(e.data);
       rowSetError(d.type, d.index);
+      if (isApiKeyError(d.error)) showApiKeyToast();
       console.warn('Pipeline item error:', d.error);
     });
 

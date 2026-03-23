@@ -18,6 +18,17 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 _last_upload = {"hw_list": [], "sw_list": []}
 _results_cache = {}   # name -> result dict
 
+
+def _parse_selected_indices(arg_name):
+    values = request.args.getlist(arg_name)
+    indices = set()
+    for value in values:
+        try:
+            indices.add(int(value))
+        except (TypeError, ValueError):
+            continue
+    return indices
+
 @app.route('/')
 def index():
     return render_template('file-inspector.html')
@@ -119,9 +130,15 @@ def run_pipeline():
 
         hw_list = _last_upload.get("hw_list", [])
         sw_list = _last_upload.get("sw_list", [])
+        selected_hw = _parse_selected_indices("hw")
+        selected_sw = _parse_selected_indices("sw")
 
         if not hw_list and not sw_list:
             yield sse("pipeline-error", {"error": "No data to process. Please upload a file first."})
+            return
+
+        if not selected_hw and not selected_sw:
+            yield sse("pipeline-error", {"error": "No items selected. Please select at least one row."})
             return
 
         pipeline_start = time.time()
@@ -141,9 +158,13 @@ def run_pipeline():
                 loop.close()
 
         all_items = (
-            [(item, "hw", i) for i, item in enumerate(hw_list)] +
-            [(item, "sw", i) for i, item in enumerate(sw_list)]
+            [(item, "hw", i) for i, item in enumerate(hw_list) if i in selected_hw] +
+            [(item, "sw", i) for i, item in enumerate(sw_list) if i in selected_sw]
         )
+
+        if not all_items:
+            yield sse("pipeline-error", {"error": "No valid selected items were found for processing."})
+            return
 
         for item, item_type, index in all_items:
             name = item if isinstance(item, str) else item.get("Name", str(item))
@@ -207,4 +228,4 @@ def pipeline_cache():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)
+    app.run(debug=True, host='0.0.0.0', port=3000, threaded=True)
