@@ -1,0 +1,1401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Asset Lifecycle Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet"/>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0d0d0d;
+      --surface: #141414;
+      --border: #2a2a2a;
+      --accent: #c8f04a;
+      --accent-dim: #9ab835;
+      --text: #e8e8e0;
+      --muted: #5a5a52;
+      --danger: #ff5c38;
+      --blue: #4ab8f0;
+    }
+
+    body.light-mode {
+      --bg: #ffffff;
+      --surface: #f8f8f8;
+      --border: #e0e0e0;
+      --accent: #7c6d1f;
+      --accent-dim: #9ab835;
+      --text: #1a1a1a;
+      --muted: #888;
+      --danger: #ff5c38;
+      --blue: #0066cc;
+    }
+
+    body.light-mode::before { opacity: 0; }
+
+    /* Light mode specific overrides */
+    body.light-mode .drop-zone:hover, 
+    body.light-mode .drop-zone.dragover { background: #fffef0; }
+    
+    body.light-mode thead tr { background: #f0f0f0; }
+    
+    body.light-mode .info-card { background: #ffffff; border: 1px solid #ddd; }
+    
+    body.light-mode .card-header { background: #f8f8f8; border-bottom: 1px solid #e0e0e0; }
+    
+    body.light-mode .badge.csv { background: #f0f8f0; color: #7c6d1f; border: 1px solid #d0e8d0; }
+    
+    body.light-mode .badge.xlsx { background: #f0f6ff; color: #0066cc; border: 1px solid #d0e8ff; }
+    
+    body.light-mode .table-section { opacity: 1; }
+    
+    body.light-mode tbody tr { background: #ffffff; }
+    
+    body.light-mode tbody tr:hover { background: #f8f8f8; }
+
+    /* Light mode table row hover */
+    body.light-mode tbody tr:hover { background: #f5f5f5; }
+
+    /* Light mode badges */
+    body.light-mode .type-badge.hw { background: #f0f5ff; color: #5a4a8f; border: 1px solid #d0d8f0; }
+    body.light-mode .type-badge.sw { background: #f0f8f0; color: #2d7a3a; border: 1px solid #d0e8d0; }
+
+    /* Light mode confidence track */
+    body.light-mode .confidence-track { background: #e0e0e0; }
+
+    /* Light mode expand label */
+    body.light-mode .expand-label { color: #666; }
+
+    /* Light mode support model box */
+    body.light-mode .support-model-box { background: rgba(124, 109, 31, 0.08); border-left-color: #7c6d1f; }
+    body.light-mode .support-model-box .expand-value { color: #7c6d1f; }
+
+    /* Light mode EOS date cell */
+    body.light-mode .eos-date-cell { color: #7c6d1f; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 2rem 4rem;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.04'/%3E%3C/svg%3E");
+      pointer-events: none;
+      z-index: 0;
+    }
+
+    .container {
+      position: relative;
+      z-index: 1;
+      width: 100%;
+      max-width: 900px;
+    }
+
+    /* Top right reset box */
+    .reset-box {
+      position: fixed;
+      top: 2rem;
+      right: 2rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 0.75rem 1rem;
+      opacity: 0;
+      transform: translateY(-10px);
+      transition: opacity 0.35s ease, transform 0.35s ease;
+      pointer-events: none;
+      z-index: 10;
+    }
+    .reset-box.visible { opacity: 1; transform: translateY(0); pointer-events: all; }
+
+    .reset-box-content {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      align-items: flex-end;
+    }
+
+    .reset-box-label {
+      font-size: 0.6rem;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+
+    /* Theme toggle */
+    .theme-toggle {
+      position: fixed;
+      bottom: 2rem;
+      left: 2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 0.4rem 0.6rem;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      z-index: 10;
+    }
+    .theme-toggle:hover { border-color: var(--accent); }
+    .theme-toggle-icon { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; }
+    .theme-toggle-label { font-size: 0.65rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); transition: color 0.3s ease; }
+    .theme-toggle:hover .theme-toggle-label { color: var(--accent); }
+
+    .reset-box-file {
+      font-size: 0.75rem;
+      color: var(--accent);
+      font-weight: 500;
+      max-width: 180px;
+      text-align: right;
+      word-break: break-word;
+    }
+
+    .btn-reset-compact {
+      padding: 0.4rem 0.75rem;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.65rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s, background 0.2s;
+      align-self: flex-end;
+    }
+    .btn-reset-compact:hover { color: var(--text); border-color: var(--text); background: #1a1a1a; }
+
+    .header { margin-bottom: 2rem; }
+    .eyebrow { font-size: 0.65rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin-bottom: 0.6rem; }
+    h1 { font-family: 'Fraunces', serif; font-weight: 300; font-size: 2.4rem; line-height: 1.1; }
+    h1 em { font-style: italic; color: var(--accent); }
+    .subtitle { margin-top: 0.75rem; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.05em; }
+
+    /* Drop zone */
+    .drop-zone {
+      border: 1.5px dashed var(--border);
+      border-radius: 4px;
+      padding: 2rem 2rem;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s, opacity 0.35s ease, transform 0.35s ease, margin 0.35s ease, height 0.35s ease;
+      position: relative;
+      background: var(--surface);
+      overflow: hidden;
+    }
+    .drop-zone:hover, .drop-zone.dragover { border-color: var(--accent); background: #1a1f0d; }
+    .drop-zone.hidden { opacity: 0; transform: translateY(-8px); pointer-events: none; margin: 0; padding: 0; height: 0; }
+    .drop-zone input[type="file"] { position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%; height: 100%; }
+    .drop-icon { width: 44px; height: 44px; margin: 0 auto 1rem; border: 1.5px solid var(--border); border-radius: 50%; display: flex; align-items: center; justify-content: center; transition: border-color 0.2s; }
+    .drop-zone:hover .drop-icon, .drop-zone.dragover .drop-icon { border-color: var(--accent); }
+    .drop-icon svg { width: 18px; height: 18px; stroke: var(--muted); fill: none; transition: stroke 0.2s; }
+    .drop-zone:hover .drop-icon svg, .drop-zone.dragover .drop-icon svg { stroke: var(--accent); }
+    .drop-label { font-size: 0.78rem; color: var(--muted); line-height: 1.8; }
+    .drop-label span { color: var(--accent); }
+    .accepted { display: block; margin-top: 0.4rem; font-size: 0.64rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+
+    /* File info card */
+    .info-card {
+      margin-top: 0.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      overflow: hidden;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 0.35s ease, transform 0.35s ease;
+      pointer-events: none;
+      display: none;
+    }
+    .info-card.visible { opacity: 1; transform: translateY(0); pointer-events: all; display: block; }
+
+    .card-header { display: flex; align-items: center; justify-content: space-between; padding: 0.7rem 1rem; border-bottom: 1px solid var(--border); background: #111; }
+    .card-label { font-size: 0.6rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+    .badge { font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase; padding: 0.2rem 0.55rem; border-radius: 2px; font-weight: 500; }
+    .badge.csv  { background: #1a2e0d; color: var(--accent); border: 1px solid #3a5c1a; }
+    .badge.xlsx { background: #0d1f2e; color: var(--blue);   border: 1px solid #1a4060; }
+
+    .fields { display: flex; }
+    .field { flex: 1; padding: 0.85rem 1rem; border-right: 1px solid var(--border); }
+    .field:last-child { border-right: none; }
+    .field-key { font-size: 0.6rem; letter-spacing: 0.15em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.3rem; }
+    .field-value { font-size: 0.85rem; color: var(--text); word-break: break-all; }
+    .field-value.accent { color: var(--accent); }
+
+    /* Actions */
+    .actions {
+      margin-top: 1rem;
+      display: flex;
+      gap: 0.75rem;
+      opacity: 0;
+      transform: translateY(6px);
+      transition: opacity 0.35s 0.1s ease, transform 0.35s 0.1s ease;
+      pointer-events: none;
+    }
+    .actions.visible { opacity: 1; transform: translateY(0); pointer-events: all; }
+
+    .btn-process {
+      flex: 1;
+      padding: 0.85rem 1.5rem;
+      background: var(--accent);
+      color: #0d0d0d;
+      border: none;
+      border-radius: 3px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.2s, transform 0.1s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    .btn-process:hover { background: var(--accent-dim); }
+    .btn-process:active { transform: scale(0.98); }
+    .btn-process:disabled { background: #2a2a2a; color: var(--muted); cursor: not-allowed; }
+
+    .btn-reset {
+      padding: 0.85rem 1.2rem;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.72rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: color 0.2s, border-color 0.2s;
+    }
+    .btn-reset:hover { color: var(--text); border-color: var(--muted); }
+
+    .spinner { width: 14px; height: 14px; border: 2px solid rgba(0,0,0,0.25); border-top-color: #0d0d0d; border-radius: 50%; animation: spin 0.7s linear infinite; display: none; }
+    .btn-process.loading .spinner { display: block; }
+    .btn-process.loading .btn-text { opacity: 0.6; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Error */
+    .error-msg { margin-top: 1rem; padding: 0.75rem 1rem; background: #1f0d0d; border: 1px solid #4a1a1a; border-radius: 4px; font-size: 0.72rem; color: var(--danger); display: none; }
+    .error-msg.visible { display: block; }
+
+    /* Processing summary */
+    .processing-summary {
+      margin-top: 0.5rem;
+      padding: 0.85rem 1rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 0.72rem;
+      color: var(--accent);
+      text-align: center;
+      opacity: 0;
+      transform: translateY(-10px);
+      transition: opacity 0.35s ease, transform 0.35s ease;
+      pointer-events: none;
+      max-height: 0;
+      overflow: hidden;
+    }
+    .processing-summary.visible { opacity: 1; transform: translateY(0); pointer-events: all; max-height: 80px; }
+
+    /* Table section container for dual tables */
+    .tables-container {
+      margin-top: 1rem;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 0.4s ease, transform 0.4s ease;
+      pointer-events: none;
+    }
+    .tables-container.visible { opacity: 1; transform: translateY(0); pointer-events: all; }
+
+    /* Individual table section */
+    .table-section {
+      margin-bottom: 2rem;
+    }
+    .table-section:last-child { margin-bottom: 0; }
+
+    .table-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.75rem; }
+    .table-title { font-size: 0.65rem; letter-spacing: 0.18em; text-transform: uppercase; color: var(--muted); }
+    .table-meta { font-size: 0.62rem; color: var(--muted); }
+    .table-meta span { color: var(--accent); }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 4px; }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.75rem; }
+    thead { position: sticky; top: 0; z-index: 2; }
+    thead tr { background: #111; border-bottom: 1px solid var(--border); }
+    th { padding: 0.65rem 0.85rem; text-align: left; font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); white-space: nowrap; font-weight: 500; vertical-align: middle; }
+    th:nth-child(1) { width: 40px; }
+    th:nth-child(2) { width: 40%; min-width: 200px; }
+    th:nth-child(3) { width: 80px; text-align: center; }
+    th:nth-child(4) { width: 130px; }
+    th:nth-child(5) { width: 120px; }
+    th:nth-child(6) { width: 44px; text-align: center; }
+    td { padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border); color: var(--text); overflow: hidden; text-overflow: ellipsis; vertical-align: middle; text-align: left; }
+    td:nth-child(1) { width: 40px; }
+    td:nth-child(2) { width: 40%; min-width: 200px; }
+    td:nth-child(3) { width: 80px; }
+    td:nth-child(4) { width: 130px; }
+    td:nth-child(5) { width: 120px; }
+    td:nth-child(6) { width: 44px; text-align: center; }
+    .name-cell { white-space: normal; word-break: break-word; }
+    .eos-date-cell { font-weight: 600; color: var(--accent); white-space: nowrap; }
+    .type-badge-cell { text-align: center; }
+    .confidence-cell { text-align: center; }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: #1a1a1a; }
+    .row-num { color: var(--muted); font-size: 0.62rem; user-select: none; text-align: center; width: 35px; padding: 0.6rem 0.5rem; }
+
+    /* Expandable row styles */
+    tbody tr { cursor: pointer; transition: background 0.2s; }
+    tbody tr:hover { background: #1a1a1a; }
+    .row-chevron { display: inline-block; transition: transform 0.3s ease; margin-right: 0.4rem; color: var(--muted); }
+    .row-expanded .row-chevron { transform: rotate(90deg); }
+    
+    .expand-row { background: #0a0f0f !important; cursor: default; border-top: 2px solid var(--accent); }
+    .expand-row:hover { background: #0a0f0f !important; }
+    .expand-row td { padding: 1.5rem 2rem; border-bottom: none; overflow: visible; width: auto !important; }
+    
+    .expand-content-wrapper { display: block; width: 100%; }
+    .expand-content-grid { display: grid; grid-template-columns: 1.5fr 1fr; gap: 2.5rem; max-width: 100%; width: 100%; }
+    
+    .expand-section { margin-bottom: 2rem; }
+    .expand-section:last-child { margin-bottom: 0; }
+    
+    .expand-section-title { font-size: 0.65rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--muted); margin-bottom: 0.8rem; font-weight: 600; }
+    
+    .expand-label { font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase; color: #888; margin-bottom: 0.3rem; font-weight: 500; }
+    
+    .expand-value { font-size: 0.85rem; color: var(--text); line-height: 1.6; word-break: break-word; white-space: pre-wrap; overflow-wrap: break-word; }
+    
+    .summary-text { font-size: 0.85rem; color: var(--text); line-height: 1.7; margin-top: 0.4rem; }
+    
+    .support-model-box { background: rgba(167, 139, 250, 0.1); padding: 0.8rem; border-radius: 4px; border-left: 2px solid var(--accent); }
+    .support-model-box .expand-label { margin-bottom: 0.3rem; }
+    .support-model-box .expand-value { color: var(--accent); font-weight: 500; }
+    
+    .sources-list { display: flex; flex-direction: column; gap: 0.6rem; margin-top: 0.6rem; }
+    .source-link { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.5rem 0.8rem; background: rgba(46, 204, 113, 0.1); border: 1px solid rgba(46, 204, 113, 0.3); border-radius: 3px; font-size: 0.7rem; color: #2ecc71; text-decoration: none; transition: all 0.2s; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .source-link:hover { background: rgba(46, 204, 113, 0.2); border-color: #2ecc71; }
+    
+    .tiers-table { width: 100%; border-collapse: collapse; margin-top: 0.6rem; font-size: 0.8rem; }
+    .tiers-table th { background: rgba(255, 255, 255, 0.05); padding: 0.6rem 0.7rem; text-align: left; font-size: 0.65rem; letter-spacing: 0.1em; text-transform: uppercase; color: #888; font-weight: 600; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+    .tiers-table td { padding: 0.6rem 0.7rem; border-bottom: 1px solid rgba(255, 255, 255, 0.05); color: var(--text); }
+    .tiers-table tbody tr:hover td { background: rgba(255, 255, 255, 0.02); }
+    .tiers-table tbody tr:last-child td { border-bottom: none; }
+    .tiers-table td:last-child { color: #2ecc71; font-weight: 600; }
+
+    /* Badge styles */
+    .type-badge { display: inline-block; padding: 0.25rem 0.6rem; border-radius: 3px; font-size: 0.65rem; font-weight: 500; letter-spacing: 0.05em; text-transform: uppercase; }
+    .type-badge.hw { background: #1a0f2e; color: #a78bfa; border: 1px solid #3c2a5c; }
+    .type-badge.sw { background: #0f2e1a; color: #2ecc71; border: 1px solid #2a5c3c; }
+
+    /* Confidence bar */
+    .confidence-bar { display: flex; align-items: center; gap: 0.6rem; }
+    .confidence-track { width: 60px; height: 5px; background: #1a1a1a; border-radius: 3px; overflow: hidden; }
+    .confidence-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
+    .confidence-fill.high { background: #2ecc71; }
+    .confidence-fill.med { background: #f39c12; }
+    .confidence-fill.low { background: #ff5c38; }
+    .confidence-score { font-size: 0.65rem; color: var(--muted); min-width: 35px; text-align: right; }
+
+    .btn-download { padding: 0.4rem 0.85rem; background: transparent; color: var(--blue); border: 1px solid #1a4060; border-radius: 3px; font-family: 'DM Mono', monospace; font-size: 0.6rem; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; transition: background 0.2s; }
+    .btn-download:hover { background: #0d1f2e; }
+
+    .footer { margin-top: 2.5rem; font-size: 0.6rem; color: var(--muted); letter-spacing: 0.1em; text-align: center; }
+
+    /* Gemini badge */
+    .gemini-badge {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.5rem;
+      z-index: 10;
+    }
+    .gemini-powered {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.6rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .gemini-icon {
+      width: 20px;
+      height: 20px;
+    }
+    .gemini-model-box {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.5rem 0.8rem;
+      text-align: right;
+    }
+    .gemini-model-name {
+      font-size: 0.65rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      background: linear-gradient(90deg, #4285f4, #ea4335, #fbbc05, #34a853, #4285f4);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      background-size: 200% 100%;
+    }
+    .gemini-model-sub {
+      font-size: 0.55rem;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+
+    /* Pipeline actions */
+    .pipeline-actions {
+      margin-top: 2rem;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 1rem;
+      opacity: 0;
+      transform: translateY(10px);
+      transition: opacity 0.4s ease, transform 0.4s ease;
+      pointer-events: none;
+    }
+    .pipeline-actions.visible { opacity: 1; transform: translateY(0); pointer-events: all; }
+
+    /* Live runtime timer */
+    .pipeline-timer {
+      font-size: 0.65rem;
+      letter-spacing: 0.15em;
+      color: var(--muted);
+      display: none;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .pipeline-timer.running { display: flex; }
+    .pipeline-timer-dot {
+      width: 6px; height: 6px; border-radius: 50%;
+      background: var(--accent);
+      animation: blink 1s ease-in-out infinite;
+    }
+    @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
+    .pipeline-timer-value { font-size: 0.85rem; color: var(--accent); font-weight: 600; min-width: 70px; }
+    .pipeline-timer-label { font-size: 0.6rem; text-transform: uppercase; letter-spacing: 0.12em; }
+
+    /* Row status cell */
+    .status-cell { text-align: center; width: 44px; }
+    .row-spinner {
+      display: none;
+      width: 16px; height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      margin: 0 auto;
+    }
+    .row-spinner.active { display: block; }
+    .row-status-icon { display: none; font-size: 0.9rem; }
+    .row-status-icon.visible { display: block; }
+
+    .btn-pipeline {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      padding: 0.95rem 2rem;
+      background: linear-gradient(135deg, var(--accent) 0%, #a8d624 100%);
+      color: #0d0d0d;
+      border: none;
+      border-radius: 4px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.8rem;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      box-shadow: 0 4px 12px rgba(200, 240, 74, 0.25);
+    }
+    .btn-pipeline:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(200, 240, 74, 0.4);
+      background: linear-gradient(135deg, #a8d624 0%, var(--accent) 100%);
+    }
+    .btn-pipeline:active {
+      transform: translateY(0);
+      box-shadow: 0 2px 8px rgba(200, 240, 74, 0.25);
+    }
+    .btn-pipeline:disabled {
+      background: #2a2a2a;
+      color: var(--muted);
+      cursor: not-allowed;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .pipeline-icon {
+      font-size: 1.1rem;
+      display: inline-block;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    .btn-pipeline:hover .pipeline-icon {
+      animation: pulse 1.2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.15); opacity: 0.8; }
+    }
+
+    .pipeline-text {
+      letter-spacing: 0.1em;
+    }
+
+    /* Light mode pipeline button */
+    body.light-mode .btn-pipeline {
+      background: linear-gradient(135deg, #7c6d1f 0%, #9a8f4a 100%);
+      color: #ffffff;
+      box-shadow: 0 4px 12px rgba(124, 109, 31, 0.25);
+    }
+    body.light-mode .btn-pipeline:hover {
+      box-shadow: 0 6px 20px rgba(124, 109, 31, 0.4);
+      background: linear-gradient(135deg, #9a8f4a 0%, #7c6d1f 100%);
+    }
+    body.light-mode .btn-pipeline:active {
+      box-shadow: 0 2px 8px rgba(124, 109, 31, 0.25);
+    }
+  </style>
+</head>
+<body>
+<div class="theme-toggle" id="themeToggle">
+  <div class="theme-toggle-icon" id="themeIcon">🌙</div>
+  <div class="theme-toggle-label" id="themeLabel">light</div>
+</div>
+
+<div class="gemini-badge">
+  <div class="gemini-powered">
+    <svg class="gemini-icon" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#gemini_gradient)"/>
+      <defs>
+        <linearGradient id="gemini_gradient" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stop-color="#4285f4"/>
+          <stop offset="50%" stop-color="#a259ff"/>
+          <stop offset="100%" stop-color="#ea4335"/>
+        </linearGradient>
+      </defs>
+    </svg>
+    Powered by
+  </div>
+  <div class="gemini-model-box">
+    <div class="gemini-model-name">Gemini 3.0 Flash Preview</div>
+    <div class="gemini-model-sub">+ Google Grounding AI</div>
+  </div>
+</div>
+
+<div class="reset-box" id="resetBox">
+  <div class="reset-box-content">
+    <div class="reset-box-label">current file</div>
+    <div class="reset-box-file" id="resetBoxFile">—</div>
+    <button class="btn-reset-compact" id="btnResetCompact">Reset</button>
+  </div>
+</div>
+
+<div class="container">
+  <div class="header">
+    <p class="eyebrow">// Asset EOS/EOL tracker</p>
+    <h1>Asset Intelligence<br/><em>Tracker</em></h1>
+    <p class="subtitle">upload → process → preview — all in one page</p>
+  </div>
+
+  <div class="drop-zone" id="dropZone">
+    <input type="file" id="fileInput" accept=".csv,.xlsx" />
+    <div class="drop-icon">
+      <svg viewBox="0 0 24 24" stroke-width="1.5">
+        <path d="M12 16V8m0 0-3 3m3-3 3 3M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1"/>
+      </svg>
+    </div>
+    <p class="drop-label">
+      <span>Click to browse</span> or drag &amp; drop<br/>
+      <span class="accepted">.csv &nbsp;·&nbsp; .xlsx</span>
+    </p>
+  </div>
+
+  <div class="error-msg" id="errorMsg"></div>
+
+  <div class="info-card" id="infoCard">
+    <div class="card-header">
+      <span class="card-label">file details</span>
+      <span class="badge" id="typeBadge">—</span>
+    </div>
+    <div class="fields">
+      <div class="field">
+        <div class="field-key">Name</div>
+        <div class="field-value accent" id="fileName">—</div>
+      </div>
+      <div class="field">
+        <div class="field-key">Size</div>
+        <div class="field-value" id="fileSize">—</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="processing-summary" id="processingSummary"></div>
+
+  <div class="tables-container" id="tablesContainer">
+    <!-- Hardware Table -->
+    <div class="table-section" id="hwTableSection" style="display:none;">
+      <div class="table-header">
+        <span class="table-title">// hardware assets</span>
+        <span class="table-meta" id="hwTableMeta"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead id="hwTableHead"></thead>
+          <tbody id="hwTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Software Table -->
+    <div class="table-section" id="swTableSection" style="display:none;">
+      <div class="table-header">
+        <span class="table-title">// software assets</span>
+        <span class="table-meta" id="swTableMeta"></span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead id="swTableHead"></thead>
+          <tbody id="swTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- AI Pipeline Trigger -->
+    <div class="pipeline-actions" id="pipelineActions">
+      <div class="pipeline-timer" id="pipelineTimer">
+        <div class="pipeline-timer-dot"></div>
+        <span class="pipeline-timer-label">Running</span>
+        <span class="pipeline-timer-value" id="pipelineTimerValue">00:00.0</span>
+      </div>
+      <button class="btn-pipeline" id="btnTriggerPipeline">
+        <span class="pipeline-icon">⚡</span>
+        <span class="pipeline-text">Trigger AI Intelligence Pipeline</span>
+      </button>
+    </div>
+  </div>
+
+  <p class="footer">file sent to your local flask server &nbsp;·&nbsp; output previewed in browser</p>
+</div>
+
+<script>
+  const dropZone    = document.getElementById('dropZone');
+  const fileInput   = document.getElementById('fileInput');
+  const infoCard    = document.getElementById('infoCard');
+  const actions     = document.getElementById('actions');
+  const btnProcess  = document.getElementById('btnProcess');
+  const btnReset    = document.getElementById('btnReset');
+  const errorMsg    = document.getElementById('errorMsg');
+  const processingSummary = document.getElementById('processingSummary');
+  const tablesContainer = document.getElementById('tablesContainer');
+  
+  // Theme toggle elements
+  const themeToggle = document.getElementById('themeToggle');
+  const themeIcon = document.getElementById('themeIcon');
+  const themeLabel = document.getElementById('themeLabel');
+  
+  // Reset box elements
+  const resetBox = document.getElementById('resetBox');
+  const resetBoxFile = document.getElementById('resetBoxFile');
+  const btnResetCompact = document.getElementById('btnResetCompact');
+
+  // Pipeline button elements
+  const pipelineActions = document.getElementById('pipelineActions');
+  const btnTriggerPipeline = document.getElementById('btnTriggerPipeline');
+
+  // Hardware table elements
+  const hwTableSection = document.getElementById('hwTableSection');
+  const hwTableHead = document.getElementById('hwTableHead');
+  const hwTableBody = document.getElementById('hwTableBody');
+  const hwTableMeta = document.getElementById('hwTableMeta');
+
+  // Software table elements
+  const swTableSection = document.getElementById('swTableSection');
+  const swTableHead = document.getElementById('swTableHead');
+  const swTableBody = document.getElementById('swTableBody');
+  const swTableMeta = document.getElementById('swTableMeta');
+
+  const ALLOWED = ['.csv', '.xlsx'];
+  let currentFile = null;
+
+  function formatSize(b) {
+    if (b < 1024) return b + ' B';
+    if (b < 1048576) return (b / 1024).toFixed(1) + ' KB';
+    return (b / 1048576).toFixed(2) + ' MB';
+  }
+  function getExt(name) { return name.slice(name.lastIndexOf('.')).toLowerCase(); }
+  function showError(msg) { errorMsg.textContent = msg; errorMsg.classList.add('visible'); }
+  function clearError()   { errorMsg.classList.remove('visible'); }
+
+  function setFileInfo(file) {
+    clearError();
+    const ext = getExt(file.name);
+    if (!ALLOWED.includes(ext)) { showError(`Unsupported type "${ext}". Use .csv or .xlsx.`); return false; }
+
+    const badge = document.getElementById('typeBadge');
+    badge.textContent = ext.slice(1).toUpperCase();
+    badge.className = `badge ${ext === '.csv' ? 'csv' : 'xlsx'}`;
+
+    document.getElementById('fileName').textContent = file.name;
+    document.getElementById('fileSize').textContent = `${formatSize(file.size)}  (${file.size.toLocaleString()} bytes)`;
+
+    infoCard.classList.add('visible');
+    tablesContainer.classList.remove('visible');
+    processingSummary.classList.remove('visible');
+    resetBox.classList.remove('visible');
+    dropZone.classList.add('hidden');
+    
+    // Auto-process the file when selected
+    setTimeout(() => processFile(), 500);
+    
+    return true;
+  }
+
+  function renderTable(data, headElement, bodyElement, type) {
+    if (!data || data.length === 0) return false;
+
+    const headers = Object.keys(data[0]);
+    const typeLabel = type === 'hardware' ? 'hw' : 'sw';
+
+    // Create header with only at-a-glance columns
+    headElement.innerHTML = '';
+    const hr = document.createElement('tr');
+    ['', 'Name', 'Type', 'EOS Date', 'Confidence', ''].forEach((h) => {
+      const th = document.createElement('th');
+      th.textContent = h;
+      hr.appendChild(th);
+    });
+    headElement.appendChild(hr);
+
+    bodyElement.innerHTML = '';
+    data.forEach((row, i) => {
+      // Main row - At-a-Glance View
+      const tr = document.createElement('tr');
+      tr.className = 'expandable-row';
+      tr.dataset.rowId = `row-${typeLabel}-${i}`;
+      
+      // Chevron cell
+      const tdChevron = document.createElement('td');
+      tdChevron.innerHTML = '<span class="row-chevron">▶</span>';
+      tdChevron.style.width = '30px';
+      tr.appendChild(tdChevron);
+      
+      // Name cell
+      const tdName = document.createElement('td');
+      tdName.className = 'name-cell';
+      tdName.textContent = row.Name || '';
+      tdName.title = row.Name || '';
+      tdName.style.fontWeight = '500';
+      tr.appendChild(tdName);
+      
+      // Type badge cell
+      const tdType = document.createElement('td');
+      tdType.className = 'type-badge-cell';
+      const typeStr = row['Hardware/Software'] || type;
+      const isSW = typeStr.toLowerCase().includes('software');
+      tdType.innerHTML = `<span class="type-badge ${isSW ? 'sw' : 'hw'}">${isSW ? 'SW' : 'HW'}</span>`;
+      tr.appendChild(tdType);
+      
+      // EOS Date cell
+      const tdEOS = document.createElement('td');
+      tdEOS.className = 'eos-date-cell';
+      tdEOS.textContent = row['EOS Date'] || 'N/A';
+      tr.appendChild(tdEOS);
+      
+      // Confidence cell with visual bar
+      const tdConfidence = document.createElement('td');
+      tdConfidence.className = 'confidence-cell';
+      const confidence = parseFloat(row.Confidence) || 0;
+      const confWidth = Math.max(confidence * 100, 5);
+      let confColor = 'low';
+      if (confidence >= 0.8) confColor = 'high';
+      else if (confidence >= 0.5) confColor = 'med';
+      
+      tdConfidence.innerHTML = `
+        <div class="confidence-bar">
+          <div class="confidence-track">
+            <div class="confidence-fill ${confColor}" style="width: ${confWidth}%"></div>
+          </div>
+          <span class="confidence-score">${confidence.toFixed(2)}</span>
+        </div>
+      `;
+      tr.appendChild(tdConfidence);
+
+      // Status cell (spinner / check / error) — populated by pipeline
+      const tdStatus = document.createElement('td');
+      tdStatus.className = 'status-cell';
+      tdStatus.id = `status-${typeLabel}-${i}`;
+      tdStatus.innerHTML = `
+        <div class="row-spinner" id="spinner-${typeLabel}-${i}"></div>
+        <span class="row-status-icon" id="icon-${typeLabel}-${i}"></span>
+      `;
+      tr.appendChild(tdStatus);
+      
+      // Click handler for expansion
+      tr.addEventListener('click', () => toggleRow(tr, bodyElement, row, typeLabel, i));
+      
+      bodyElement.appendChild(tr);
+
+      // Expand row (hidden by default) - Full Details View
+      const expandTr = document.createElement('tr');
+      expandTr.className = 'expand-row';
+      expandTr.id = `expand-${typeLabel}-${i}`;
+      expandTr.style.display = 'none';
+      
+      const expandTd = document.createElement('td');
+      expandTd.colSpan = 6;
+      
+      // Build the expanded content
+      const summary = row.Summary || '';
+      const supportModel = row['Support Model'] || 'N/A';
+      const sourceUrls = row['Source URLs'] || [];
+      const supportTiers = row['Support Tiers'] || [];
+      
+      let tiersHtml = '';
+      if (supportTiers.length > 0) {
+        tiersHtml = `
+          <table class="tiers-table">
+            <thead>
+              <tr>
+                <th>Tier</th>
+                <th>End Date</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${supportTiers.map(t => `
+                <tr>
+                  <td>${t.Tier || ''}</td>
+                  <td>${t.EndDate || ''}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        `;
+      } else {
+        tiersHtml = '<p style="font-size: 0.85rem; color: #999; margin-top: 0.8rem;">No detailed support tiers available.</p>';
+      }
+      
+      let sourcesHtml = '';
+      if (sourceUrls.length > 0) {
+        sourcesHtml = `
+          <div class="sources-list">
+            ${sourceUrls.map(url => `
+              <a href="${url}" target="_blank" class="source-link">📎 Source Link</a>
+            `).join('')}
+          </div>
+        `;
+      } else {
+        sourcesHtml = '<p style="font-size: 0.85rem; color: #999; margin-top: 0.8rem;">No sources cited.</p>';
+      }
+      
+      expandTd.innerHTML = `
+        <div class="expand-content-grid">
+          <div>
+            <div class="expand-section">
+              <div class="expand-section-title">Executive Summary</div>
+              <div class="expand-value">${summary || 'No summary available.'}</div>
+            </div>
+            
+            <div class="expand-section">
+              <div class="expand-section-title">Support Model</div>
+              <div class="support-model-box">
+                <div class="expand-value">${supportModel}</div>
+              </div>
+            </div>
+            
+            <div class="expand-section">
+              <div class="expand-section-title">Sources</div>
+              ${sourceUrls.length > 0 ? `
+                <div class="sources-list">
+                  ${sourceUrls.map(url => `<a href="${url}" target="_blank" class="source-link">🔗 ${new URL(url).hostname}</a>`).join('')}
+                </div>
+              ` : '<div class="expand-value" style="color: #666;">No sources available.</div>'}
+            </div>
+          </div>
+          
+          <div>
+            <div class="expand-section">
+              <div class="expand-section-title">Lifecycle Milestones</div>
+              ${supportTiers.length > 0 ? `
+                <table class="tiers-table">
+                  <thead>
+                    <tr>
+                      <th>Tier</th>
+                      <th>End Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${supportTiers.map(t => `
+                      <tr>
+                        <td>${t.Tier || ''}</td>
+                        <td>${t.EndDate || ''}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              ` : '<div class="expand-value" style="color: #666;">No milestones available.</div>'}
+            </div>
+          </div>
+        </div>
+      `;
+      expandTr.appendChild(expandTd);
+      bodyElement.appendChild(expandTr);
+    });
+
+    return true;
+  }
+
+  function toggleRow(rowElement, tableBody, rowData, type, index) {
+    const expandId = `expand-${type}-${index}`;
+    const expandRow = document.getElementById(expandId);
+    const isExpanded = rowElement.classList.contains('row-expanded');
+    
+    // Close any other open rows in this table
+    tableBody.querySelectorAll('tr.row-expanded').forEach(r => {
+      if (r !== rowElement) {
+        r.classList.remove('row-expanded');
+        const rowId = r.dataset.rowId;
+        const idx = rowId.split('-').pop();
+        const otherType = rowId.split('-')[1];
+        const otherExpand = document.getElementById(`expand-${otherType}-${idx}`);
+        if (otherExpand) otherExpand.style.display = 'none';
+      }
+    });
+
+    if (isExpanded) {
+      rowElement.classList.remove('row-expanded');
+      if (expandRow) expandRow.style.display = 'none';
+    } else {
+      rowElement.classList.add('row-expanded');
+      if (expandRow) expandRow.style.display = 'table-row';
+    }
+  }
+
+  async function processFile() {
+    if (!currentFile) return;
+    clearError();
+    processingSummary.classList.remove('visible');
+
+    const startTime = performance.now();
+
+    try {
+      const formData = new FormData();
+      formData.append('file', currentFile);
+
+      const response = await fetch('/upload', { method: 'POST', body: formData });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Server error ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.error) {
+        showError(data.error || 'Processing failed');
+        tablesContainer.classList.remove('visible');
+        processingSummary.classList.remove('visible');
+        return;
+      }
+
+      const elapsedTime = (performance.now() - startTime) / 1000;
+      const hwCount = data.hw_count || 0;
+      const swCount = data.sw_count || 0;
+
+      // Update summary
+      let summaryText = `File read in ${elapsedTime.toFixed(2)}s`;
+      if (hwCount > 0) summaryText += ` • Hardware: <span>${hwCount}</span>`;
+      if (swCount > 0) summaryText += ` • Software: <span>${swCount}</span>`;
+      
+      processingSummary.innerHTML = summaryText;
+      processingSummary.classList.add('visible');
+
+      // Show only tables with data
+      const hasHW = data.hw_data && data.hw_data.length > 0;
+      const hasSW = data.sw_data && data.sw_data.length > 0;
+
+      if (hasHW) {
+        renderTable(data.hw_data, hwTableHead, hwTableBody, 'hardware');
+        hwTableMeta.innerHTML = `<span>${data.hw_data.length}</span> rows`;
+        hwTableSection.style.display = 'block';
+      } else {
+        hwTableSection.style.display = 'none';
+      }
+
+      if (hasSW) {
+        renderTable(data.sw_data, swTableHead, swTableBody, 'software');
+        swTableMeta.innerHTML = `<span>${data.sw_data.length}</span> rows`;
+        swTableSection.style.display = 'block';
+      } else {
+        swTableSection.style.display = 'none';
+      }
+
+      if (hasHW || hasSW) {
+        tablesContainer.classList.add('visible');
+        pipelineActions.classList.add('visible');
+        
+        // Hide info card and show reset box instead
+        infoCard.classList.remove('visible');
+        resetBoxFile.textContent = currentFile.name;
+        resetBox.classList.add('visible');
+      }
+
+    } catch (err) {
+      showError('Processing failed: ' + err.message);
+      tablesContainer.classList.remove('visible');
+      processingSummary.classList.remove('visible');
+    }
+  }
+
+  function reset() {
+    currentFile = null;
+    fileInput.value = '';
+    infoCard.classList.remove('visible');
+    tablesContainer.classList.remove('visible');
+    pipelineActions.classList.remove('visible');
+    processingSummary.classList.remove('visible');
+    resetBox.classList.remove('visible');
+    dropZone.classList.remove('hidden');
+    clearError();
+    hwTableHead.innerHTML = '';
+    hwTableBody.innerHTML = '';
+    swTableHead.innerHTML = '';
+    swTableBody.innerHTML = '';
+    // Reset pipeline button and timer
+    stopTimer();
+    pipelineTimerValue.textContent = '00:00.0';
+    btnTriggerPipeline.disabled = false;
+    btnTriggerPipeline.querySelector('.pipeline-text').textContent = 'Trigger AI Intelligence Pipeline';
+  }
+
+  // Load test data
+  function loadTestData() {
+    const testData = {
+      "hw_data": [
+        {
+          "Name": "iPhone 17 Pro Max",
+          "Summary": "The iPhone 17 Pro Max has not been released yet, but based on Apple's historical support patterns, it is expected to receive approximately 7 years of software updates.",
+          "Hardware/Software": "Hardware",
+          "Support Model": "Version-Based",
+          "EOS Date": "No EOS found",
+          "Support Tiers": [],
+          "Source URLs": [],
+          "Confidence": 0.0
+        }
+      ],
+      "sw_data": [
+        {
+          "Name": "Ubuntu 22.04 LTS (Jammy Jellyfish)",
+          "Summary": "Ubuntu 22.04 LTS follows a fixed lifecycle with five years of standard support followed by five years of Expanded Security Maintenance (ESM).",
+          "Hardware/Software": "Software",
+          "Support Model": "Fixed",
+          "EOS Date": "2032-04-01",
+          "Support Tiers": [
+            {"Tier": "Maintenance Updates", "EndDate": "2027-04-01"},
+            {"Tier": "Expanded Security Maintenance (ESM)", "EndDate": "2032-04-01"}
+          ],
+          "Source URLs": ["https://ubuntu.com/about/release-cycle", "https://wiki.ubuntu.com/Releases"],
+          "Confidence": 1.0
+        },
+        {
+          "Name": "Cisco IOS 7.8",
+          "Summary": "Cisco IOS version 7.8 is an extremely legacy version of the software that has long passed its end-of-support milestones.",
+          "Hardware/Software": "Software",
+          "Support Model": "Version-Based",
+          "EOS Date": "2005-07-28",
+          "Support Tiers": [
+            {"Tier": "End of Sale", "EndDate": "2000-07-28"},
+            {"Tier": "End of SW Maintenance", "EndDate": "2001-07-28"},
+            {"Tier": "End of Support", "EndDate": "2005-07-28"}
+          ],
+          "Source URLs": ["https://www.cisco.com/c/en/us/products/collateral/ios-nx-os-software/ios-software-releases-11-0/prod_end-of-life_notice09186a0080091aba.html"],
+          "Confidence": 1.0
+        }
+      ],
+      "hw_count": 1,
+      "sw_count": 2,
+      "elapsed_time": 0.02,
+      "error": null
+    };
+
+    // Render test data
+    if (testData.hw_data && testData.hw_data.length > 0) {
+      renderTable(testData.hw_data, hwTableHead, hwTableBody, 'hardware');
+      hwTableMeta.innerHTML = `<span>${testData.hw_data.length}</span> rows`;
+      hwTableSection.style.display = 'block';
+    }
+
+    if (testData.sw_data && testData.sw_data.length > 0) {
+      renderTable(testData.sw_data, swTableHead, swTableBody, 'software');
+      swTableMeta.innerHTML = `<span>${testData.sw_data.length}</span> rows`;
+      swTableSection.style.display = 'block';
+    }
+
+    // Show results
+    processingSummary.innerHTML = `File read in ${testData.elapsed_time.toFixed(2)}s • Hardware: <span>${testData.hw_count}</span> • Software: <span>${testData.sw_count}</span>`;
+    processingSummary.classList.add('visible');
+    tablesContainer.classList.add('visible');
+    pipelineActions.classList.add('visible');
+    dropZone.classList.add('hidden');
+    infoCard.classList.remove('visible');
+    resetBoxFile.textContent = 'test-data.xlsx';
+    resetBox.classList.add('visible');
+  }
+
+  window.addEventListener('load', () => {
+    // Initialize theme from localStorage
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    if (savedTheme === 'light') {
+      document.body.classList.add('light-mode');
+      themeIcon.textContent = '☀️';
+      themeLabel.textContent = 'dark';
+    }
+  });
+
+  // Theme toggle handler
+  themeToggle.addEventListener('click', () => {
+    const isLightMode = document.body.classList.toggle('light-mode');
+    if (isLightMode) {
+      themeIcon.textContent = '☀️';
+      themeLabel.textContent = 'dark';
+      localStorage.setItem('theme', 'light');
+    } else {
+      themeIcon.textContent = '🌙';
+      themeLabel.textContent = 'light';
+      localStorage.setItem('theme', 'dark');
+    }
+  });
+
+  fileInput.addEventListener('change', e => {
+    if (e.target.files.length) { currentFile = e.target.files[0]; setFileInfo(currentFile); }
+  });
+  dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
+  dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('dragover'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault(); dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files.length) { currentFile = e.dataTransfer.files[0]; setFileInfo(currentFile); }
+  });
+
+  btnResetCompact.addEventListener('click', reset);
+
+  // ── Live timer ────────────────────────────────────────────────────────────
+  const pipelineTimer      = document.getElementById('pipelineTimer');
+  const pipelineTimerValue = document.getElementById('pipelineTimerValue');
+  let _timerStart = null;
+  let _timerRAF   = null;
+
+  function startTimer() {
+    _timerStart = performance.now();
+    pipelineTimer.classList.add('running');
+    function tick() {
+      const ms  = performance.now() - _timerStart;
+      const m   = Math.floor(ms / 60000);
+      const s   = Math.floor((ms % 60000) / 1000);
+      const ds  = Math.floor((ms % 1000) / 100);
+      pipelineTimerValue.textContent =
+        String(m).padStart(2,'0') + ':' +
+        String(s).padStart(2,'0') + '.' + ds;
+      _timerRAF = requestAnimationFrame(tick);
+    }
+    _timerRAF = requestAnimationFrame(tick);
+  }
+
+  function stopTimer() {
+    if (_timerRAF) cancelAnimationFrame(_timerRAF);
+    pipelineTimer.classList.remove('running');
+  }
+
+  // ── Row status helpers ────────────────────────────────────────────────────
+  function rowSetSpinning(type, index) {
+    const spinner = document.getElementById(`spinner-${type}-${index}`);
+    const icon    = document.getElementById(`icon-${type}-${index}`);
+    if (spinner) spinner.classList.add('active');
+    if (icon)    { icon.textContent = ''; icon.classList.remove('visible'); }
+  }
+
+  function rowSetDone(type, index, result, fromCache = false) {
+    const spinner = document.getElementById(`spinner-${type}-${index}`);
+    const icon    = document.getElementById(`icon-${type}-${index}`);
+    if (spinner) spinner.classList.remove('active');
+    if (icon) {
+      icon.textContent = fromCache ? '◎' : '✓';
+      icon.style.color = fromCache ? '#4ab8f0' : '#2ecc71';
+      icon.title = fromCache ? 'Loaded from cache' : 'Processed by AI';
+      icon.classList.add('visible');
+    }
+
+    // Patch the visible row cells with fresh data from the AI result
+    if (!result) return;
+    const tr = document.querySelector(`tr[data-row-id="row-${type}-${index}"]`);
+    if (!tr) return;
+
+    // EOS Date — td:nth-child(4)
+    const tdEOS = tr.cells[3];
+    if (tdEOS && result['EOS Date']) tdEOS.textContent = result['EOS Date'];
+
+    // Confidence — td:nth-child(5)
+    const tdConf = tr.cells[4];
+    if (tdConf && result.Confidence !== undefined) {
+      const c = parseFloat(result.Confidence) || 0;
+      const w = Math.max(c * 100, 5);
+      const cls = c >= 0.8 ? 'high' : c >= 0.5 ? 'med' : 'low';
+      tdConf.innerHTML = `
+        <div class="confidence-bar">
+          <div class="confidence-track">
+            <div class="confidence-fill ${cls}" style="width:${w}%"></div>
+          </div>
+          <span class="confidence-score">${c.toFixed(2)}</span>
+        </div>`;
+    }
+
+    // Update the expand row content with the full AI result
+    const expandTd = document.querySelector(`#expand-${type}-${index} td`);
+    if (expandTd && result) {
+      const summary     = result.Summary || '';
+      const support     = result['Support Model'] || 'N/A';
+      const urls        = result['Source URLs'] || [];
+      const tiers       = result['Support Tiers'] || [];
+
+      expandTd.querySelector('.expand-content-grid').innerHTML = `
+        <div>
+          <div class="expand-section">
+            <div class="expand-section-title">Executive Summary</div>
+            <div class="expand-value">${summary || 'No summary available.'}</div>
+          </div>
+          <div class="expand-section">
+            <div class="expand-section-title">Support Model</div>
+            <div class="support-model-box">
+              <div class="expand-value">${support}</div>
+            </div>
+          </div>
+          <div class="expand-section">
+            <div class="expand-section-title">Sources</div>
+            ${urls.length > 0
+              ? `<div class="sources-list">${urls.map(u => {
+                  let host = u;
+                  try { host = new URL(u).hostname; } catch(_) {}
+                  return `<a href="${u}" target="_blank" class="source-link">🔗 ${host}</a>`;
+                }).join('')}</div>`
+              : '<div class="expand-value" style="color:#666;">No sources available.</div>'
+            }
+          </div>
+        </div>
+        <div>
+          <div class="expand-section">
+            <div class="expand-section-title">Lifecycle Milestones</div>
+            ${tiers.length > 0
+              ? `<table class="tiers-table"><thead><tr><th>Tier</th><th>End Date</th></tr></thead><tbody>
+                  ${tiers.map(t => `<tr><td>${t.Tier||''}</td><td>${t.EndDate||''}</td></tr>`).join('')}
+                 </tbody></table>`
+              : '<div class="expand-value" style="color:#666;">No milestones available.</div>'
+            }
+          </div>
+        </div>
+      `;
+    }
+  }
+
+  function rowSetError(type, index) {
+    const spinner = document.getElementById(`spinner-${type}-${index}`);
+    const icon    = document.getElementById(`icon-${type}-${index}`);
+    if (spinner) spinner.classList.remove('active');
+    if (icon)    { icon.textContent = '✕'; icon.style.color = '#ff5c38'; icon.classList.add('visible'); }
+  }
+
+  // ── Pipeline trigger ──────────────────────────────────────────────────────
+  btnTriggerPipeline.addEventListener('click', () => {
+    btnTriggerPipeline.disabled = true;
+    btnTriggerPipeline.querySelector('.pipeline-text').textContent = 'Pipeline Running…';
+    clearError();
+    startTimer();
+
+    let liveCount = 0;
+    let cachedCount = 0;
+
+    const es = new EventSource('/run-pipeline');
+
+    es.addEventListener('item-start', e => {
+      const d = JSON.parse(e.data);
+      rowSetSpinning(d.type, d.index);
+    });
+
+    es.addEventListener('item-done', e => {
+      const d = JSON.parse(e.data);
+      if (d.cached) {
+        // Instant restore from cache — no spinner needed
+        cachedCount++;
+        rowSetDone(d.type, d.index, d.result, true);
+      } else {
+        liveCount++;
+        rowSetDone(d.type, d.index, d.result, false);
+      }
+    });
+
+    es.addEventListener('item-error', e => {
+      const d = JSON.parse(e.data);
+      rowSetError(d.type, d.index);
+      console.warn('Pipeline item error:', d.error);
+    });
+
+    es.addEventListener('pipeline-done', e => {
+      const d = JSON.parse(e.data);
+      stopTimer();
+      es.close();
+      btnTriggerPipeline.disabled = false;
+      const parts = [`${d.processed}/${d.total} items`];
+      if (cachedCount > 0) parts.push(`${cachedCount} from cache`);
+      if (liveCount > 0)   parts.push(`${liveCount} via API`);
+      btnTriggerPipeline.querySelector('.pipeline-text').textContent = `✓ Complete — ${parts.join(' · ')}`;
+      pipelineTimerValue.textContent += ' ✓';
+    });
+
+    es.addEventListener('pipeline-error', e => {
+      const d = JSON.parse(e.data);
+      stopTimer();
+      es.close();
+      showError('Pipeline error: ' + d.error);
+      btnTriggerPipeline.disabled = false;
+      btnTriggerPipeline.querySelector('.pipeline-text').textContent = 'Trigger AI Intelligence Pipeline';
+    });
+
+    es.onerror = () => {
+      stopTimer();
+      es.close();
+      showError('Lost connection to pipeline. Please try again.');
+      btnTriggerPipeline.disabled = false;
+      btnTriggerPipeline.querySelector('.pipeline-text').textContent = 'Trigger AI Intelligence Pipeline';
+    };
+  });
+</script>
+</body>
+</html>

@@ -6,47 +6,83 @@ from classes import Helper, Cleaner, Processing
 import time
 import asyncio
 import pandas as pd
+import numpy as np
+import sys
+from threading import Thread
+
+# Spinner class for terminal animation
+class Spinner:
+    def __init__(self, message="Loading"):
+        self.message = message
+        self.spinner_chars = ['|', '/', '-', '\\']
+        self.index = 0
+        self.running = False
+        self.thread = None
+
+    def start(self):
+        self.running = True
+        self.thread = Thread(target=self._spin, daemon=True)
+        self.thread.start()
+
+    def _spin(self):
+        while self.running:
+            sys.stdout.write(f'\r{self.message} {self.spinner_chars[self.index % len(self.spinner_chars)]}   ')
+            sys.stdout.flush()
+            self.index += 1
+            time.sleep(0.15)
+
+    def stop(self):
+        self.running = False
+        if self.thread:
+            self.thread.join()
+        sys.stdout.write(f'\r{self.message} ✓\n')
+        sys.stdout.flush()
 
 # load the API keys
-with open('keys.json', 'r') as file:
-    keys = json.load(file)
+def keys_and_prompt_setup():
+    with open('keys.json', 'r') as file:
+        keys = json.load(file)
 
-# load the prompt from a different text file
-with open('prompt.txt', 'r') as pmt_file:
-    instruct = pmt_file.read()
+    # load the prompt from a different text file
+    with open('prompt.txt', 'r') as pmt_file:
+        instruct = pmt_file.read()
+    return keys, instruct
 
-def client_setup(): # need to include some try except error handling here
+def client_setup(keys): # need to include some try except error handling here
     client = genai.Client(api_key=keys['GEMINI_API_KEY'])
     print('Client successfully established.')
-
+    thinking_setup = types.ThinkingConfig(
+        thinking_level="low"  # Options: "minimal", "low", "medium", "high"
+)
     # Set up the google search tool for the client.
     scraper_client = types.Tool(google_search=types.GoogleSearch())
     config = types.GenerateContentConfig(
-        tools=[scraper_client],
-        thinking_config=types.ThinkingConfig(thinking_budget=-1),
-        temperature = 0.2,
+    thinking_config=thinking_setup,
+    temperature=0.0, 
+    response_mime_type="application/json", 
 )
     return client, config
 
-client, config = client_setup()
-
-async def process_line(string, client, config):
+async def process_line(string, client, config, instruct):
     print(f"Processing item: {string}")
     try:
-        await asyncio.sleep(1)  # Sleep to avoid hitting rate limits
+        await asyncio.sleep(2)  # Sleep to avoid hitting rate limits
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=instruct + ' ' + string,
-            config=config
-        )
-        return Helper.parse_llm_json(response.text) # includes throwing none in here as well
+        model="gemini-3-flash-preview",
+        contents=instruct + ' ' + string,
+        config=config
+    )
+        json_response = "" #
+        for part in response.candidates[0].content.parts:
+            if part.text:
+                json_response += part.text
+        return Helper.parse_llm_json(json_response) # includes throwing none in here as well
     except Exception as e:
         print(f"Error processing {string}: {e}")
         return None # need to add some handling here to log if needed. 
 
-async def main(eos_list):
-    client, config = client_setup()
-    tasks = [process_line(item, client, config) for item in eos_list]
+async def ai_main(eos_list, instruct, client, config):
+    tasks = [process_line(item, client, config, instruct) for item in eos_list]
     results = await asyncio.gather(*tasks)
 
     # error caching for failed API calls or bad responses
@@ -73,11 +109,16 @@ async def main(eos_list):
     
     return success, unsuccess
 
-async def run_async(lst):
-    print("Starting async processing...")
+async def run_async(lst, instruct, client, config):
+    spinner = Spinner(f"Processing {len(lst)} items")
+    spinner.start()
+    
     # add time start
     start_time = time.time()
-    results, failed_items = await main(lst)
+    results, failed_items = await ai_main(lst, instruct, client, config)
+    
+    spinner.stop()
+    
     # add time end
     elapsed = time.time() - start_time  # Calculate elapsed time
     print(f"Time taken: {elapsed:.2f} seconds")  # Print elapsed time
@@ -86,12 +127,34 @@ async def run_async(lst):
 
 # Run the async function, change this for the script. 
 
-print('-----------------------------------')
-asset_list = Helper.preprocess('SWandHW.xlsx', sheet = 'Sheet1')
+def main():
+    # start the client setup and preprocessing
+    keys, instruct = keys_and_prompt_setup()
+    print("Keys and prompt successfully loaded.")
+    client, config = client_setup(keys) # you can insert your own keys
+    print("Client setup successfully completed.")
+    
+    # start the reading in of data with spinner
+    spinner = Spinner("Reading file")
+    spinner.start()
+    processor = Helper()
+    hw_list, sw_list = processor.preprocess('test.xlsx', sheet='Sheet1')
+    spinner.stop()
 
-omnii_sw = Cleaner.clean_text_to_unique(asset_list["Software Version"])
-print('Identified the Software')
-print('-----------------------------------')
-results, failed_items = asyncio.run(run_async(asset_list))
+    # show sw
+    print(f"SW List: {sw_list}")
+
+    # async processing of the hardware list
+    hw_results, hw_failed_items = asyncio.run(run_async(hw_list[:2], instruct, client, config))
+    # async processing of software list
+    sw_results, sw_failed_items = asyncio.run(run_async(sw_list[:2], instruct, client, config))
+
+    #print(f"Failed items: {failed_items}")
+    ##print(f"Successful items: {len(results)}")
+    return hw_results, sw_results
+
+if __name__ == '__main__':
+    main()
+
 
 # Post-processing the results

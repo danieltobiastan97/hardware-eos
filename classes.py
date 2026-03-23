@@ -31,28 +31,67 @@ class Helper:
         except json.JSONDecodeError as e:
             print(f"Error decoding JSON: {e}")
             return None
-        
-    def preprocess(filename, sheet):
+
+    """
+    Preprocesses the Excel file to extract hardware and software lists."""
+    def preprocess(self, filename, sheet='Sheet1'):
         time_start = time.time()
-        print('Starting Preprocessing...')
-        try:
-            asset_list = pd.read_excel(filename, sheet_name = sheet)
-            asset_list.rename(columns={asset_list.columns[3]: 'Software Version'}, inplace=True)
-            asset_list['Software Version'] = asset_list['Software Version'].str.strip()
-            time_end = time.time() - time_start
-            print(f'Asset list read in {time_end:.1f}s')
-            print('-----------------------------------')
-            return asset_list
+        print(f'Starting Preprocessing for: {filename}...')
         
+        try:
+            # 1. Load the data
+            # engine='openpyxl' is often more reliable for modern .xlsx files
+            df = pd.read_excel(filename, sheet_name=sheet)
+
+            if df.empty:
+                print(f"Warning: The sheet '{sheet}' is empty.")
+                return [], []
+
+            # 2. Optimized Cleaning Helper
+            def clean_column(column_name):
+                if column_name not in df.columns:
+                    print(f"Warning: Column '{column_name}' not found in {sheet}.")
+                    return []
+                
+                # Chain operations: drop nulls -> cast to string -> strip whitespace -> filter out empty strings
+                return (
+                    df[column_name]
+                    .dropna()
+                    .astype(str)
+                    .str.strip()
+                    .replace('', pd.NA) # Handle cells that were just spaces
+                    .dropna()
+                    .tolist()
+                )
+
+            # 3. Process Lists
+            hw_list = clean_column('Hardware')
+            sw_list = clean_column('Software')
+
+            # 4. Remove Duplicates - Keep only unique items
+            hw_list = list(dict.fromkeys(hw_list))  # Preserves order while removing duplicates
+            sw_list = list(dict.fromkeys(sw_list))  # Preserves order while removing duplicates
+
+            # 5. Success Reporting
+            time_elapsed = time.time() - time_start
+            print(f"Number of hardware items: {len(hw_list)}")
+            print(f"Number of software items: {len(sw_list)}")
+            print(f"Processing completed in {time_elapsed:.2f}s")
+            print('-----------------------------------')
+            
+            return hw_list, sw_list
 
         except FileNotFoundError:
             print(f"Error: The file '{filename}' was not found.")
-            return None # Return None to indicate failure
+        except ValueError as e:
+            print(f"Error: Sheet '{sheet}' not found or file is corrupted. {e}")
+        except PermissionError:
+            print(f"Error: Permission denied. Is the file '{filename}' open in Excel?")
+        except Exception as e:
+            print(f"An unexpected error occurred: {e}")
 
-        except (ValueError, KeyError, IndexError) as e:
-            # Catches bad sheet names, column rename/access issues
-            print(f"Error processing the sheet '{sheet}' in '{filename}': {e}")
-            return None # Return None to indicate failure
+        # Return empty lists on any failure so the rest of your code doesn't crash
+        return [], []
 
 class Cleaner:
     def __init__(self):
@@ -115,4 +154,21 @@ class Processing:
             else:
                 unsuccess.append(eos_list[i])  # This mapping is always correct
         return success, unsuccess
+    
+    def processing_tiers(results):
+        df = pd.DataFrame(results)
+
+        # 2. Explode the 'Support Tiers' column to create separate rows
+        #    Products with no tiers (like Chrome) will result in a row with NaN
+        df_exploded = df.explode('Support Tiers').reset_index(drop=True)
+
+        # 3. Normalize the 'Support Tiers' column (which now contains dictionaries)
+        #    and join it back to the main data
+        tiers_df = pd.json_normalize(df_exploded['Support Tiers'])
+        final_df = df_exploded.drop(columns=['Support Tiers']).join(tiers_df)
+
+        # Optional: Convert date strings to datetime objects for calculations
+        final_df['EOS Date'] = pd.to_datetime(final_df['EOS Date'])
+        final_df['EndDate'] = pd.to_datetime(final_df['EndDate'])
+        return final_df
         
