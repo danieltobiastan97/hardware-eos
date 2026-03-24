@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.db
+uploads/
+keys.json
+testing.ipynb
+ideas.txt
+*.md
+.git/
+.DS_Store
+docker-compose.override.yml

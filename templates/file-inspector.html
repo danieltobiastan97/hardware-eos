@@ -94,7 +94,27 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 2rem 2rem 4rem;
+      padding: 4.6rem 2rem 4rem;
+    }
+
+    .beta-banner {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 40;
+      padding: 0.62rem 1rem;
+      text-align: center;
+      font-size: 0.68rem;
+      letter-spacing: 0.06em;
+      background: rgba(255, 149, 0, 0.95);
+      color: #fff8f4;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+      backdrop-filter: blur(4px);
+    }
+    body.light-mode .beta-banner {
+      background: rgba(232, 134, 0, 0.95);
+      color: #fff;
     }
 
     body::before {
@@ -113,20 +133,60 @@
       max-width: 900px;
     }
 
-    /* Top right reset box */
+    /* Header actions */
+    .header {
+      margin-bottom: 2rem;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1.5rem;
+    }
+    .header-main {
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .header-copy {
+      min-width: 0;
+    }
+    .header-actions {
+      display: flex;
+      align-items: flex-start;
+      justify-content: flex-end;
+      flex: 0 0 auto;
+    }
+    .btn-logout {
+      padding: 0.45rem 0.8rem;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+    .btn-logout:hover {
+      color: var(--text);
+      border-color: var(--accent);
+      background: rgba(200, 240, 74, 0.08);
+    }
+
+    /* Inline reset box */
     .reset-box {
-      position: fixed;
-      top: 2rem;
-      right: 2rem;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 4px;
       padding: 0.75rem 1rem;
+      min-width: 220px;
       opacity: 0;
       transform: translateY(-10px);
       transition: opacity 0.35s ease, transform 0.35s ease;
       pointer-events: none;
-      z-index: 10;
     }
     .reset-box.visible { opacity: 1; transform: translateY(0); pointer-events: all; }
 
@@ -134,7 +194,7 @@
       display: flex;
       flex-direction: column;
       gap: 0.5rem;
-      align-items: flex-end;
+      align-items: flex-start;
     }
 
     .reset-box-label {
@@ -145,10 +205,16 @@
     }
 
     /* Theme toggle */
-    .theme-toggle {
+    .theme-toggle-wrap {
       position: fixed;
       bottom: 2rem;
       left: 2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      z-index: 10;
+    }
+    .theme-toggle {
       display: flex;
       align-items: center;
       gap: 0.5rem;
@@ -158,19 +224,34 @@
       padding: 0.4rem 0.6rem;
       cursor: pointer;
       transition: all 0.3s ease;
-      z-index: 10;
     }
     .theme-toggle:hover { border-color: var(--accent); }
     .theme-toggle-icon { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; }
     .theme-toggle-label { font-size: 0.65rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); transition: color 0.3s ease; }
     .theme-toggle:hover .theme-toggle-label { color: var(--accent); }
+    .theme-toggle-note {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.34rem 0.55rem;
+      font-size: 0.58rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .theme-toggle.disabled {
+      cursor: not-allowed;
+      pointer-events: none;
+      opacity: 0.45;
+      filter: grayscale(0.3);
+    }
 
     .reset-box-file {
       font-size: 0.75rem;
       color: var(--accent);
       font-weight: 500;
       max-width: 180px;
-      text-align: right;
+      text-align: left;
       word-break: break-word;
     }
 
@@ -186,15 +267,30 @@
       text-transform: uppercase;
       cursor: pointer;
       transition: color 0.2s, border-color 0.2s, background 0.2s;
-      align-self: flex-end;
+      align-self: flex-start;
     }
     .btn-reset-compact:hover { color: var(--text); border-color: var(--text); background: #1a1a1a; }
 
-    .header { margin-bottom: 2rem; }
     .eyebrow { font-size: 0.65rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin-bottom: 0.6rem; }
     h1 { font-family: 'Fraunces', serif; font-weight: 300; font-size: 2.4rem; line-height: 1.1; }
     h1 em { font-style: italic; color: var(--accent); }
     .subtitle { margin-top: 0.75rem; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.05em; }
+    @media (max-width: 760px) {
+      .header {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .header-main {
+        flex-direction: column;
+      }
+      .header-actions {
+        justify-content: flex-start;
+      }
+      .reset-box {
+        width: 100%;
+        min-width: 0;
+      }
+    }
     .drop-zone-wrap {
       position: relative;
       margin-top: 0.25rem;
@@ -431,7 +527,7 @@
 
     .toast {
       position: fixed;
-      top: 1.5rem;
+      top: 3.4rem;
       left: 50%;
       transform: translate(-50%, -16px);
       padding: 0.85rem 1.1rem;
@@ -799,9 +895,13 @@
   </style>
 </head>
 <body>
-<div class="theme-toggle" id="themeToggle">
-  <div class="theme-toggle-icon" id="themeIcon">🌙</div>
-  <div class="theme-toggle-label" id="themeLabel">light</div>
+<div class="beta-banner">⚠️ Beta — AI-generated results may not be accurate. Please validate before use.</div>
+<div class="theme-toggle-wrap">
+  <div class="theme-toggle disabled" id="themeToggle">
+    <div class="theme-toggle-icon" id="themeIcon">🌙</div>
+    <div class="theme-toggle-label" id="themeLabel">dark</div>
+  </div>
+  <div class="theme-toggle-note">coming soon</div>
 </div>
 
 <div class="toast" id="apiKeyToast">Error: Check Valid API Key</div>
@@ -826,19 +926,27 @@
   </div>
 </div>
 
-<div class="reset-box" id="resetBox">
-  <div class="reset-box-content">
-    <div class="reset-box-label">current file</div>
-    <div class="reset-box-file" id="resetBoxFile">—</div>
-    <button class="btn-reset-compact" id="btnResetCompact">Reset</button>
-  </div>
-</div>
-
 <div class="container">
   <div class="header">
-    <p class="eyebrow">// Asset EOS/EOL tracker</p>
-    <h1>Asset Intelligence<br/><em>Tracker</em></h1>
-    <p class="subtitle">upload → process → preview — all in one page</p>
+    <div class="header-main">
+      <div class="header-copy">
+        <p class="eyebrow">// Asset EOS/EOL tracker</p>
+        <h1>Asset Intelligence<br/><em>Tracker</em></h1>
+        <p class="subtitle">upload → process → preview — all in one page</p>
+      </div>
+      <div class="reset-box" id="resetBox">
+        <div class="reset-box-content">
+          <div class="reset-box-label">current file</div>
+          <div class="reset-box-file" id="resetBoxFile">—</div>
+          <button class="btn-reset-compact" id="btnResetCompact">Reset</button>
+        </div>
+      </div>
+    </div>
+    <div class="header-actions">
+      <form method="post" action="/logout">
+        <button class="btn-logout" type="submit">Logout</button>
+      </form>
+    </div>
   </div>
 
   <div class="drop-zone-wrap">
@@ -942,7 +1050,6 @@
     </div>
   </div>
 
-  <p class="footer">file sent to your local flask server &nbsp;·&nbsp; output previewed in browser</p>
 </div>
 
 <script>
@@ -1744,20 +1851,21 @@
     if (savedTheme === 'light') {
       document.body.classList.add('light-mode');
       themeIcon.textContent = '☀️';
-      themeLabel.textContent = 'dark';
+      themeLabel.textContent = 'light';
     }
   });
 
   // Theme toggle handler
   themeToggle.addEventListener('click', () => {
+    if (themeToggle.classList.contains('disabled')) return;
     const isLightMode = document.body.classList.toggle('light-mode');
     if (isLightMode) {
       themeIcon.textContent = '☀️';
-      themeLabel.textContent = 'dark';
+      themeLabel.textContent = 'light';
       localStorage.setItem('theme', 'light');
     } else {
       themeIcon.textContent = '🌙';
-      themeLabel.textContent = 'light';
+      themeLabel.textContent = 'dark';
       localStorage.setItem('theme', 'dark');
     }
   });

@@ -1,7 +1,9 @@
 import os
 import json
 import asyncio
-from flask import Flask, render_template, request, jsonify, Response, stream_with_context
+from functools import wraps
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context, redirect, session, url_for
+from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 import time
 
@@ -10,13 +12,52 @@ from prompt import keys_and_prompt_setup, client_setup, process_line
 from classes import Helper, Processing
 
 app = Flask(__name__)
+app.secret_key = os.getenv("APP_SECRET_KEY", "change-this-secret-key")
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+ADMIN_USERNAME = "admin"
+ADMIN_PASSWORD = os.getenv("APP_ADMIN_PASSWORD", "changeme")
+ADMIN_PASSWORD_HASH = os.getenv("APP_ADMIN_PASSWORD_HASH")
 
 # Store the last uploaded lists and AI results cache
 # Results are keyed by item name so re-running skips already-processed items
 _last_upload = {"hw_list": [], "sw_list": []}
 _results_cache = {}   # name -> result dict
+
+
+def _is_authenticated():
+    return session.get("user") == ADMIN_USERNAME
+
+
+def _password_matches(password):
+    if ADMIN_PASSWORD_HASH:
+        return check_password_hash(ADMIN_PASSWORD_HASH, password)
+    return password == ADMIN_PASSWORD
+
+
+def _unauthorized_response():
+    if request.path == "/run-pipeline":
+        payload = {"error": "Authentication required."}
+        return Response(
+            f"event: pipeline-error\ndata: {json.dumps(payload)}\n\n",
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+            status=401,
+        )
+    if request.path in {"/upload", "/upload-manual", "/pipeline-cache"}:
+        return jsonify({"error": "Authentication required."}), 401
+    return redirect(url_for("login"))
+
+
+def login_required(view_func):
+    @wraps(view_func)
+    def wrapped(*args, **kwargs):
+        if not _is_authenticated():
+            return _unauthorized_response()
+        return view_func(*args, **kwargs)
+
+    return wrapped
 
 
 def _build_upload_payload(hw_list, sw_list, elapsed_time, error=None):
@@ -100,11 +141,37 @@ def _parse_name_overrides(type_key):
             overrides[index] = cleaned
     return overrides
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if _is_authenticated():
+        return redirect(url_for('index'))
+
+    error = None
+    if request.method == 'POST':
+        username = str(request.form.get('username', '')).strip()
+        password = str(request.form.get('password', ''))
+        if username == ADMIN_USERNAME and _password_matches(password):
+            session.clear()
+            session['user'] = ADMIN_USERNAME
+            return redirect(url_for('index'))
+        error = 'Invalid username or password.'
+
+    return render_template('login.html', error=error, username=ADMIN_USERNAME)
+
+
+@app.route('/logout', methods=['POST'])
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+
 @app.route('/')
+@login_required
 def index():
-    return render_template('file-inspector.html')
+    return render_template('file-inspector.html', current_user=session.get('user'))
 
 @app.route('/upload', methods=['POST'])
+@login_required
 def upload():
     file = request.files.get('file')
     if not file:
@@ -154,6 +221,7 @@ def upload():
 
 
 @app.route('/upload-manual', methods=['POST'])
+@login_required
 def upload_manual():
     """Accept a single manually entered query from the UI and stage it for pipeline processing."""
     start_time = time.time()
@@ -184,6 +252,7 @@ def upload_manual():
 
 
 @app.route('/run-pipeline')
+@login_required
 def run_pipeline():
     """
     Server-Sent Events endpoint. Streams pipeline progress back to the browser.
@@ -294,6 +363,7 @@ def run_pipeline():
 
 
 @app.route('/pipeline-cache')
+@login_required
 def pipeline_cache():
     """Returns the current in-memory AI results cache so the browser can
     restore row state after a page refresh without re-calling the API."""
