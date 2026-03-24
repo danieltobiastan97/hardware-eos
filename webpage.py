@@ -19,6 +19,58 @@ _last_upload = {"hw_list": [], "sw_list": []}
 _results_cache = {}   # name -> result dict
 
 
+def _build_upload_payload(hw_list, sw_list, elapsed_time, error=None):
+    """Normalize preprocess/manual lists into a consistent upload response."""
+    if error:
+        return {
+            "error": error,
+            "hw_data": [],
+            "sw_data": [],
+            "hw_count": 0,
+            "sw_count": 0,
+            "elapsed_time": elapsed_time,
+        }
+
+    hw_data = []
+    if hw_list:
+        if isinstance(hw_list[0], dict):
+            hw_data = hw_list
+        else:
+            hw_data = [
+                {
+                    "Name": str(item),
+                    "Hardware/Software": "Hardware",
+                    "EOS Date": "N/A",
+                    "Confidence": 0.0,
+                }
+                for item in hw_list
+            ]
+
+    sw_data = []
+    if sw_list:
+        if isinstance(sw_list[0], dict):
+            sw_data = sw_list
+        else:
+            sw_data = [
+                {
+                    "Name": str(item),
+                    "Hardware/Software": "Software",
+                    "EOS Date": "N/A",
+                    "Confidence": 0.0,
+                }
+                for item in sw_list
+            ]
+
+    return {
+        "hw_data": hw_data,
+        "sw_data": sw_data,
+        "hw_count": len(hw_list),
+        "sw_count": len(sw_list),
+        "elapsed_time": elapsed_time,
+        "error": None,
+    }
+
+
 def _parse_selected_indices(arg_name):
     values = request.args.getlist(arg_name)
     indices = set()
@@ -72,47 +124,22 @@ def upload():
         
         elapsed_time = time.time() - start_time
         
-        # Check if both lists are empty
-        if not hw_list and not sw_list:
-            return jsonify({
-                "error": "The Excel file seems to be invalid. Please check your file to ensure that the template is correct.",
-                "hw_data": [],
-                "sw_data": [],
-                "hw_count": 0,
-                "sw_count": 0,
-                "elapsed_time": elapsed_time
-            }), 200
-        
-        # Convert hardware list to table format
-        hw_data = []
-        if hw_list:
-            if isinstance(hw_list[0], dict):
-                hw_data = hw_list
-            else:
-                hw_data = [{"Name": str(item), "Hardware/Software": "Hardware", "EOS Date": "N/A", "Confidence": 0.0} for item in hw_list]
-        
-        # Convert software list to table format
-        sw_data = []
-        if sw_list:
-            if isinstance(sw_list[0], dict):
-                sw_data = sw_list
-            else:
-                sw_data = [{"Name": str(item), "Hardware/Software": "Software", "EOS Date": "N/A", "Confidence": 0.0} for item in sw_list]
-
         # Cache the raw lists for the pipeline endpoint (preprocess always returns plain strings)
         _last_upload["hw_list"] = hw_list
         _last_upload["sw_list"] = sw_list
         # Clear AI results cache since this is a new file
         _results_cache.clear()
-        
-        return jsonify({
-            "hw_data": hw_data,
-            "sw_data": sw_data,
-            "hw_count": len(hw_list),
-            "sw_count": len(sw_list),
-            "elapsed_time": elapsed_time,
-            "error": None
-        }), 200
+
+        if not hw_list and not sw_list:
+            payload = _build_upload_payload(
+                hw_list,
+                sw_list,
+                elapsed_time,
+                error="The Excel file seems to be invalid. Please check your file to ensure that the template is correct.",
+            )
+            return jsonify(payload), 200
+
+        return jsonify(_build_upload_payload(hw_list, sw_list, elapsed_time)), 200
     
     except Exception as e:
         elapsed_time = time.time() - start_time
@@ -124,6 +151,36 @@ def upload():
             "sw_count": 0,
             "elapsed_time": elapsed_time
         }), 500
+
+
+@app.route('/upload-manual', methods=['POST'])
+def upload_manual():
+    """Accept a single manually entered query from the UI and stage it for pipeline processing."""
+    start_time = time.time()
+    try:
+        data = request.get_json(silent=True) or {}
+        query = str(data.get('query', '')).strip()
+        if not query:
+            return jsonify(_build_upload_payload([], [], 0.0, error='No manual query provided.')), 400
+
+        # Support semicolon-delimited multiple items
+        items = [q.strip() for q in query.split(';') if q.strip()]
+        if not items:
+            return jsonify(_build_upload_payload([], [], 0.0, error='No manual query provided.')), 400
+
+        # Stage all items for pipeline (pipeline classifies HW vs SW per item)
+        hw_list = []
+        sw_list = items
+
+        _last_upload["hw_list"] = hw_list
+        _last_upload["sw_list"] = sw_list
+        _results_cache.clear()
+
+        elapsed_time = time.time() - start_time
+        return jsonify(_build_upload_payload(hw_list, sw_list, elapsed_time)), 200
+    except Exception as e:
+        elapsed_time = time.time() - start_time
+        return jsonify(_build_upload_payload([], [], elapsed_time, error=f"Manual input failed: {str(e)}")), 500
 
 
 @app.route('/run-pipeline')

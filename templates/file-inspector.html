@@ -39,6 +39,16 @@
     /* Light mode specific overrides */
     body.light-mode .drop-zone:hover, 
     body.light-mode .drop-zone.dragover { background: #fffef0; }
+
+    body.light-mode .drop-zone.manual-mode {
+      background: linear-gradient(160deg, rgba(124, 109, 31, 0.08), rgba(255, 255, 255, 0.98));
+      border-color: rgba(124, 109, 31, 0.22);
+    }
+
+    body.light-mode .manual-search-input {
+      background: #ffffff;
+      border: none;
+    }
     
     body.light-mode thead tr { background: #f0f0f0; }
     
@@ -185,6 +195,39 @@
     h1 { font-family: 'Fraunces', serif; font-weight: 300; font-size: 2.4rem; line-height: 1.1; }
     h1 em { font-style: italic; color: var(--accent); }
     .subtitle { margin-top: 0.75rem; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.05em; }
+    .drop-zone-wrap {
+      position: relative;
+      margin-top: 0.25rem;
+    }
+    .search-individual-wrap {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 0.55rem;
+    }
+    .btn-search-individual {
+      padding: 0.45rem 0.8rem;
+      background: var(--accent);
+      color: #0d0d0d;
+      border: 1px solid var(--accent);
+      border-radius: 3px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.1s ease, border-color 0.2s ease;
+    }
+    .btn-search-individual:hover {
+      background: var(--accent-dim);
+      border-color: var(--accent-dim);
+    }
+    .btn-search-individual:active { transform: translateY(1px); }
+    .btn-search-individual.active {
+      background: transparent;
+      color: var(--accent);
+      border-color: var(--accent);
+    }
 
     /* Drop zone */
     .drop-zone {
@@ -208,6 +251,96 @@
     .drop-label { font-size: 0.78rem; color: var(--muted); line-height: 1.8; }
     .drop-label span { color: var(--accent); }
     .accepted { display: block; margin-top: 0.4rem; font-size: 0.64rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+    .manual-search-panel {
+      display: none;
+      position: relative;
+      width: 100%;
+      min-height: 168px;
+      text-align: left;
+    }
+    .manual-input-wrap {
+      position: relative;
+      width: 100%;
+    }
+    .drop-zone.manual-mode {
+      cursor: default;
+      border: none;
+      background: linear-gradient(160deg, rgba(200, 240, 74, 0.08), rgba(20, 20, 20, 0.95));
+    }
+    .drop-zone.manual-mode .drop-upload-content,
+    .drop-zone.manual-mode input[type="file"] {
+      display: none;
+    }
+    .drop-zone.manual-mode .manual-search-panel {
+      display: block;
+    }
+    .manual-search-input {
+      width: 100%;
+      min-height: 128px;
+      resize: vertical;
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      background: rgba(13, 13, 13, 0.6);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      padding: 0.9rem 3.1rem 0.9rem 0.95rem;
+      outline: none;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .manual-search-input:focus {
+      box-shadow: none;
+    }
+    .manual-submit-btn {
+      position: absolute;
+      right: 0.65rem;
+      bottom: 0.65rem;
+      width: 36px;
+      height: 24px;
+      border: 1px solid var(--accent);
+      border-radius: 3px;
+      background: var(--accent);
+      color: #0d0d0d;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.1s ease;
+    }
+    .manual-submit-btn:hover { background: var(--accent-dim); }
+    .manual-submit-btn:active { transform: scale(0.96); }
+    .manual-submit-btn:disabled {
+      background: #2a2a2a;
+      color: var(--muted);
+      cursor: not-allowed;
+    }
+    @keyframes go-spin { to { transform: rotate(360deg); } }
+    .manual-submit-btn .go-spinner {
+      display: none;
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(0,0,0,0.2);
+      border-top-color: #0d0d0d;
+      border-radius: 50%;
+      animation: go-spin 0.6s linear infinite;
+    }
+    .manual-submit-btn.loading .go-text { display: none; }
+    .manual-submit-btn.loading .go-spinner { display: block; }
+    .manual-timer-display {
+      position: absolute;
+      right: calc(0.65rem + 46px);
+      bottom: 0.83rem;
+      font-size: 0.68rem;
+      font-family: 'DM Mono', monospace;
+      color: var(--muted);
+      pointer-events: none;
+    }
 
     /* File info card */
     .info-card {
@@ -661,7 +794,7 @@
       border-radius: 3px;
       padding: 0.25rem 0.45rem;
       outline: none;
-      box-shadow: 0 0 0 2px rgba(200, 240, 74s, 0.15);
+      box-shadow: 0 0 0 2px rgba(200, 240, 74, 0.15);
     }
   </style>
 </head>
@@ -708,17 +841,41 @@
     <p class="subtitle">upload → process → preview — all in one page</p>
   </div>
 
-  <div class="drop-zone" id="dropZone">
-    <input type="file" id="fileInput" accept=".csv,.xlsx" />
-    <div class="drop-icon">
-      <svg viewBox="0 0 24 24" stroke-width="1.5">
-        <path d="M12 16V8m0 0-3 3m3-3 3 3M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1"/>
-      </svg>
+  <div class="drop-zone-wrap">
+    <div class="search-individual-wrap">
+      <button class="btn-search-individual" id="btnSearchIndividually" type="button">Search Individually</button>
     </div>
-    <p class="drop-label">
-      <span>Click to browse</span> or drag &amp; drop<br/>
-      <span class="accepted">.csv &nbsp;·&nbsp; .xlsx</span>
-    </p>
+
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept=".csv,.xlsx" />
+      <div class="drop-upload-content">
+        <div class="drop-icon">
+          <svg viewBox="0 0 24 24" stroke-width="1.5">
+            <path d="M12 16V8m0 0-3 3m3-3 3 3M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1"/>
+          </svg>
+        </div>
+        <p class="drop-label">
+          <span>Click to browse</span> or drag &amp; drop<br/>
+          <span class="accepted">.csv &nbsp;·&nbsp; .xlsx</span>
+        </p>
+      </div>
+
+      <div class="manual-search-panel" id="manualSearchPanel">
+        <div class="manual-input-wrap">
+          <textarea
+            id="manualSearchInput"
+            class="manual-search-input"
+            placeholder="Type any hardware or software name here..."
+            rows="4"
+          ></textarea>
+          <button id="btnManualSubmit" class="manual-submit-btn" type="button" aria-label="Submit manual search">
+            <span class="go-text">GO</span>
+            <span class="go-spinner"></span>
+          </button>
+          <span id="manualTimerDisplay" class="manual-timer-display"></span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="error-msg" id="errorMsg"></div>
@@ -746,7 +903,7 @@
     <!-- Hardware Table -->
     <div class="table-section" id="hwTableSection" style="display:none;">
       <div class="table-header">
-        <span class="table-title">// hardware assets</span>
+        <span class="table-title">// assets</span>
         <span class="table-meta" id="hwTableMeta"></span>
       </div>
       <div class="table-wrap">
@@ -760,7 +917,7 @@
     <!-- Software Table -->
     <div class="table-section" id="swTableSection" style="display:none;">
       <div class="table-header">
-        <span class="table-title">// software assets</span>
+        <span class="table-title">// assets</span>
         <span class="table-meta" id="swTableMeta"></span>
       </div>
       <div class="table-wrap">
@@ -791,6 +948,9 @@
 <script>
   const dropZone    = document.getElementById('dropZone');
   const fileInput   = document.getElementById('fileInput');
+  const btnSearchIndividually = document.getElementById('btnSearchIndividually');
+  const manualSearchInput = document.getElementById('manualSearchInput');
+  const btnManualSubmit = document.getElementById('btnManualSubmit');
   const infoCard    = document.getElementById('infoCard');
   const actions     = document.getElementById('actions');
   const btnProcess  = document.getElementById('btnProcess');
@@ -828,10 +988,16 @@
 
   const ALLOWED = ['.csv', '.xlsx'];
   let currentFile = null;
+  let manualMode = false;
+  let manualAutoRunActive = false;
+  let _manualFirstResultDone = false;
+  let currentManualEs = null;
+  let manualTimerInterval = null;
   let apiKeyToastTimer = null;
   const selectedRows = { hw: new Set(), sw: new Set() };
   const editedNames = { hw: {}, sw: {} };
   const tableTotals = { hw: 0, sw: 0 };
+  const currentTableData = { hw: [], sw: [] };
 
   function formatSize(b) {
     if (b < 1024) return b + ' B';
@@ -905,6 +1071,173 @@
     document.querySelectorAll('.name-edit-input').forEach(input => {
       input.blur();
     });
+  }
+
+  function renderCurrentTables(showPipeline = true) {
+    const hasHW = currentTableData.hw.length > 0;
+    const hasSW = currentTableData.sw.length > 0;
+
+    if (hasHW) {
+      renderTable(currentTableData.hw, hwTableHead, hwTableBody, 'hardware');
+      hwTableSection.style.display = 'block';
+    } else {
+      hwTableSection.style.display = 'none';
+      tableTotals.hw = 0;
+      selectedRows.hw = new Set();
+    }
+
+    if (hasSW) {
+      renderTable(currentTableData.sw, swTableHead, swTableBody, 'software');
+      swTableSection.style.display = 'block';
+    } else {
+      swTableSection.style.display = 'none';
+      tableTotals.sw = 0;
+      selectedRows.sw = new Set();
+    }
+
+    if (hasHW || hasSW) {
+      tablesContainer.classList.add('visible');
+      if (showPipeline) pipelineActions.classList.add('visible');
+      else pipelineActions.classList.remove('visible');
+      infoCard.classList.remove('visible');
+      resetBox.classList.add('visible');
+    } else {
+      pipelineActions.classList.remove('visible');
+    }
+  }
+
+  function routeManualResultToTable(itemDonePayload) {
+    if (!itemDonePayload || !itemDonePayload.result) return;
+
+    const result = itemDonePayload.result;
+    const itemType = itemDonePayload.type;   // 'sw' for all manual items
+    const itemIndex = itemDonePayload.index;
+    const declaredType = String(result['Hardware/Software'] || '').toLowerCase();
+    const isHardware = declaredType.includes('hardware');
+    const finalTypeStr = isHardware ? 'Hardware' : 'Software';
+
+    // Update the data record
+    if (currentTableData[itemType]?.[itemIndex] !== undefined) {
+      currentTableData[itemType][itemIndex]['Hardware/Software'] = finalTypeStr;
+    }
+
+    // Update type badge in-place — no full re-render
+    const tr = document.querySelector(`tr[data-row-id="row-${itemType}-${itemIndex}"]`);
+    if (tr && tr.cells[3]) {
+      tr.cells[3].innerHTML = `<span class="type-badge ${isHardware ? 'hw' : 'sw'}">${isHardware ? 'HW' : 'SW'}</span>`;
+    }
+  }
+
+  function toggleManualMode(nextState) {
+    manualMode = nextState;
+    dropZone.classList.toggle('manual-mode', manualMode);
+    btnSearchIndividually.classList.toggle('active', manualMode);
+    btnSearchIndividually.textContent = 'Search Individually';
+    if (manualMode) {
+      clearError();
+      setTimeout(() => manualSearchInput.focus(), 50);
+    }
+  }
+
+  function stopManualSpinner() {
+    if (manualTimerInterval) { clearInterval(manualTimerInterval); manualTimerInterval = null; }
+    btnManualSubmit.disabled = false;
+    btnManualSubmit.classList.remove('loading');
+  }
+
+  async function processManualInput() {
+    const raw = manualSearchInput.value.trim();
+    if (!raw) {
+      showError('Please enter a product name to search individually.');
+      manualSearchInput.focus();
+      return;
+    }
+
+    clearError();
+    processingSummary.classList.remove('visible');
+    btnManualSubmit.disabled = true;
+    btnManualSubmit.classList.add('loading');
+    _manualFirstResultDone = false;
+
+    const manualTimerDisplay = document.getElementById('manualTimerDisplay');
+    const startTime = performance.now();
+    manualTimerDisplay.textContent = '0.0s';
+    if (manualTimerInterval) clearInterval(manualTimerInterval);
+    manualTimerInterval = setInterval(() => {
+      manualTimerDisplay.textContent = ((performance.now() - startTime) / 1000).toFixed(1) + 's';
+    }, 100);
+
+    // Short abort for the staging fetch only (pipeline gets its own per-item watchdog)
+    const fetchAbort = new AbortController();
+    const fetchTimeoutId = setTimeout(() => fetchAbort.abort(), 10000);
+
+    try {
+      const response = await fetch('/upload-manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: raw }),
+        signal: fetchAbort.signal
+      });
+      clearTimeout(fetchTimeoutId);
+
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || `Server error ${response.status}`);
+      }
+
+      // Combine all items into a single flat list in one table (all staged as sw in the pipeline)
+      const allItems = [...(data.sw_data || []), ...(data.hw_data || [])].map(item => ({
+        ...item,
+        'Hardware/Software': 'N.A'   // blank until AI result arrives
+      }));
+
+      currentTableData.hw = [];
+      currentTableData.sw = allItems;
+      editedNames.hw = {};
+      editedNames.sw = {};
+      renderCurrentTables(false);   // sets up selectedRows.sw, hides hw section
+
+      // UI transition — show single table immediately
+      currentFile = null;
+      infoCard.classList.remove('visible');
+      dropZone.classList.add('hidden');
+      toggleManualMode(false);
+      resetBoxFile.textContent = allItems.length === 1 ? (allItems[0]?.Name || '') : `${allItems.length} items`;
+      resetBox.classList.add('visible');
+      tablesContainer.classList.add('visible');
+
+      manualAutoRunActive = true;
+      startPipelineRun(true);
+    } catch (err) {
+      clearTimeout(fetchTimeoutId);
+      if (err.name === 'AbortError') {
+        showError('Request timed out. Please try again.');
+      } else {
+        showError('Processing failed: ' + err.message);
+        tablesContainer.classList.remove('visible');
+        processingSummary.classList.remove('visible');
+      }
+      manualAutoRunActive = false;
+      stopManualSpinner();
+    }
+  }
+
+  async function renderProcessedData(data, elapsedTime, showPipeline = true) {
+    const hwCount = data.hw_count || 0;
+    const swCount = data.sw_count || 0;
+
+    let summaryText = `File read in ${elapsedTime.toFixed(2)}s`;
+    if (hwCount > 0) summaryText += ` • Hardware: <span>${hwCount}</span>`;
+    if (swCount > 0) summaryText += ` • Software: <span>${swCount}</span>`;
+
+    processingSummary.innerHTML = summaryText;
+    processingSummary.classList.add('visible');
+
+    currentTableData.hw = data.hw_data ? [...data.hw_data] : [];
+    currentTableData.sw = data.sw_data ? [...data.sw_data] : [];
+    editedNames.hw = {};
+    editedNames.sw = {};
+    renderCurrentTables(showPipeline);
   }
 
   function setFileInfo(file) {
@@ -1032,9 +1365,14 @@
       // Type badge cell
       const tdType = document.createElement('td');
       tdType.className = 'type-badge-cell';
-      const typeStr = row['Hardware/Software'] || type;
+      const typeStr = row['Hardware/Software'] || '';
+      const isBlank = !typeStr || typeStr === 'N.A';
       const isSW = typeStr.toLowerCase().includes('software');
-      tdType.innerHTML = `<span class="type-badge ${isSW ? 'sw' : 'hw'}">${isSW ? 'SW' : 'HW'}</span>`;
+      if (isBlank) {
+        tdType.innerHTML = `<span class="type-badge" style="opacity:0.3; border-color:rgba(128,128,128,0.3); color:var(--muted);">—</span>`;
+      } else {
+        tdType.innerHTML = `<span class="type-badge ${isSW ? 'sw' : 'hw'}">${isSW ? 'SW' : 'HW'}</span>`;
+      }
       tr.appendChild(tdType);
       
       // EOS Date cell
@@ -1277,53 +1615,8 @@
         return;
       }
 
-      const elapsedTime = (performance.now() - startTime) / 1000;
-      const hwCount = data.hw_count || 0;
-      const swCount = data.sw_count || 0;
-
-      // Update summary
-      let summaryText = `File read in ${elapsedTime.toFixed(2)}s`;
-      if (hwCount > 0) summaryText += ` • Hardware: <span>${hwCount}</span>`;
-      if (swCount > 0) summaryText += ` • Software: <span>${swCount}</span>`;
-      
-      processingSummary.innerHTML = summaryText;
-      processingSummary.classList.add('visible');
-
-      // Show only tables with data
-      const hasHW = data.hw_data && data.hw_data.length > 0;
-      const hasSW = data.sw_data && data.sw_data.length > 0;
-
-      if (hasHW) {
-        editedNames.hw = {};
-        renderTable(data.hw_data, hwTableHead, hwTableBody, 'hardware');
-        hwTableSection.style.display = 'block';
-      } else {
-        hwTableSection.style.display = 'none';
-        tableTotals.hw = 0;
-        selectedRows.hw = new Set();
-        editedNames.hw = {};
-      }
-
-      if (hasSW) {
-        editedNames.sw = {};
-        renderTable(data.sw_data, swTableHead, swTableBody, 'software');
-        swTableSection.style.display = 'block';
-      } else {
-        swTableSection.style.display = 'none';
-        tableTotals.sw = 0;
-        selectedRows.sw = new Set();
-        editedNames.sw = {};
-      }
-
-      if (hasHW || hasSW) {
-        tablesContainer.classList.add('visible');
-        pipelineActions.classList.add('visible');
-        
-        // Hide info card and show reset box instead
-        infoCard.classList.remove('visible');
-        resetBoxFile.textContent = currentFile.name;
-        resetBox.classList.add('visible');
-      }
+      resetBoxFile.textContent = currentFile.name;
+      await renderProcessedData(data, (performance.now() - startTime) / 1000);
 
     } catch (err) {
       showError('Processing failed: ' + err.message);
@@ -1334,6 +1627,8 @@
 
   function reset() {
     currentFile = null;
+    manualSearchInput.value = '';
+    toggleManualMode(false);
     fileInput.value = '';
     infoCard.classList.remove('visible');
     tablesContainer.classList.remove('visible');
@@ -1351,17 +1646,29 @@
     hwTableBody.innerHTML = '';
     swTableHead.innerHTML = '';
     swTableBody.innerHTML = '';
+    currentTableData.hw = [];
+    currentTableData.sw = [];
     tableTotals.hw = 0;
     tableTotals.sw = 0;
     selectedRows.hw = new Set();
     selectedRows.sw = new Set();
     editedNames.hw = {};
     editedNames.sw = {};
+    manualAutoRunActive = false;
+    _manualFirstResultDone = false;
     // Reset pipeline button and timer
     stopTimer();
     pipelineTimerValue.textContent = '00:00.0';
     btnTriggerPipeline.disabled = false;
     btnTriggerPipeline.querySelector('.pipeline-text').textContent = 'Trigger AI Intelligence Pipeline';
+  }
+
+  function startFreshIndividualSearch() {
+    reset();
+    manualSearchInput.value = '';
+    toggleManualMode(true);
+    pipelineActions.classList.remove('visible');
+    setTimeout(() => manualSearchInput.focus(), 50);
   }
 
   // Load test data
@@ -1414,16 +1721,11 @@
       "error": null
     };
 
-    // Render test data
-    if (testData.hw_data && testData.hw_data.length > 0) {
-      renderTable(testData.hw_data, hwTableHead, hwTableBody, 'hardware');
-      hwTableSection.style.display = 'block';
-    }
-
-    if (testData.sw_data && testData.sw_data.length > 0) {
-      renderTable(testData.sw_data, swTableHead, swTableBody, 'software');
-      swTableSection.style.display = 'block';
-    }
+    currentTableData.hw = testData.hw_data ? [...testData.hw_data] : [];
+    currentTableData.sw = testData.sw_data ? [...testData.sw_data] : [];
+    editedNames.hw = {};
+    editedNames.sw = {};
+    renderCurrentTables();
 
     // Show results
     processingSummary.innerHTML = `File read in ${testData.elapsed_time.toFixed(2)}s • Hardware: <span>${testData.hw_count}</span> • Software: <span>${testData.sw_count}</span>`;
@@ -1463,9 +1765,32 @@
   fileInput.addEventListener('change', e => {
     if (e.target.files.length) { currentFile = e.target.files[0]; setFileInfo(currentFile); }
   });
-  dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
-  dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('dragover'));
+  btnSearchIndividually.addEventListener('click', () => {
+    if (manualMode) {
+      reset();
+    } else {
+      startFreshIndividualSearch();
+    }
+  });
+
+  btnManualSubmit.addEventListener('click', processManualInput);
+  manualSearchInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      processManualInput();
+    }
+  });
+  dropZone.addEventListener('dragover',  e => {
+    if (manualMode) return;
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+  dropZone.addEventListener('dragleave', ()  => {
+    if (manualMode) return;
+    dropZone.classList.remove('dragover');
+  });
   dropZone.addEventListener('drop', e => {
+    if (manualMode) return;
     e.preventDefault(); dropZone.classList.remove('dragover');
     if (e.dataTransfer.files.length) { currentFile = e.dataTransfer.files[0]; setFileInfo(currentFile); }
   });
@@ -1597,11 +1922,12 @@
   }
 
   // ── Pipeline trigger ──────────────────────────────────────────────────────
-  btnTriggerPipeline.addEventListener('click', () => {
+  function startPipelineRun(autoFromManual = false) {
     commitAllOpenNameEdits();
 
     if (selectedRows.hw.size === 0 && selectedRows.sw.size === 0) {
       showError('Please select at least one item before running the AI pipeline.');
+      manualAutoRunActive = false;
       return;
     }
 
@@ -1613,23 +1939,46 @@
     let liveCount = 0;
     let cachedCount = 0;
 
+    // Per-item watchdog: 60s reset on each item-start / item-done
+    let watchdog = null;
+    const WATCHDOG_MS = 60000;
+    function resetWatchdog() {
+      if (!autoFromManual) return;
+      if (watchdog) clearTimeout(watchdog);
+      watchdog = setTimeout(() => {
+        es.close();
+        currentManualEs = null;
+        stopManualSpinner();
+        manualAutoRunActive = false;
+        showError('Timeout Error: Please try again later.');
+      }, WATCHDOG_MS);
+    }
+    function clearWatchdog() {
+      if (watchdog) { clearTimeout(watchdog); watchdog = null; }
+    }
+
     const es = new EventSource(buildPipelineUrl());
+    if (autoFromManual) { currentManualEs = es; resetWatchdog(); }
 
     es.addEventListener('item-start', e => {
       const d = JSON.parse(e.data);
       rowSetSpinning(d.type, d.index);
+      resetWatchdog();
     });
 
     es.addEventListener('item-done', e => {
       const d = JSON.parse(e.data);
       if (d.cached) {
-        // Instant restore from cache — no spinner needed
         cachedCount++;
         rowSetDone(d.type, d.index, d.result, true);
       } else {
         liveCount++;
         rowSetDone(d.type, d.index, d.result, false);
       }
+      if (manualAutoRunActive || autoFromManual) {
+        routeManualResultToTable(d);
+      }
+      resetWatchdog();
     });
 
     es.addEventListener('item-error', e => {
@@ -1643,31 +1992,42 @@
       const d = JSON.parse(e.data);
       stopTimer();
       es.close();
+      clearWatchdog();
       btnTriggerPipeline.disabled = false;
       const parts = [`${d.processed}/${d.total} items`];
       if (cachedCount > 0) parts.push(`${cachedCount} from cache`);
       if (liveCount > 0)   parts.push(`${liveCount} via API`);
       btnTriggerPipeline.querySelector('.pipeline-text').textContent = `✓ Complete — ${parts.join(' · ')}`;
       pipelineTimerValue.textContent += ' ✓';
+      if (autoFromManual) { currentManualEs = null; stopManualSpinner(); }
+      manualAutoRunActive = false;
     });
 
     es.addEventListener('pipeline-error', e => {
       const d = JSON.parse(e.data);
       stopTimer();
       es.close();
+      clearWatchdog();
       showError('Pipeline error: ' + d.error);
       btnTriggerPipeline.disabled = false;
       btnTriggerPipeline.querySelector('.pipeline-text').textContent = 'Trigger AI Intelligence Pipeline';
+      if (autoFromManual) { currentManualEs = null; stopManualSpinner(); }
+      manualAutoRunActive = false;
     });
 
     es.onerror = () => {
       stopTimer();
       es.close();
+      clearWatchdog();
       showError('Lost connection to pipeline. Please try again.');
       btnTriggerPipeline.disabled = false;
       btnTriggerPipeline.querySelector('.pipeline-text').textContent = 'Trigger AI Intelligence Pipeline';
+      if (autoFromManual) { currentManualEs = null; stopManualSpinner(); }
+      manualAutoRunActive = false;
     };
-  });
+  }
+
+  btnTriggerPipeline.addEventListener('click', () => startPipelineRun(false));
 </script>
 </body>
 </html>
