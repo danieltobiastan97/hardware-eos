@@ -625,6 +625,44 @@
     body.light-mode .btn-pipeline:active {
       box-shadow: 0 2px 8px rgba(124, 109, 31, 0.25);
     }
+
+    /* Inline name editing */
+    .name-cell-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .edit-name-btn {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.2rem;
+      border-radius: 3px;
+      color: var(--muted);
+      opacity: 0;
+      transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+    }
+    tr:hover .edit-name-btn { opacity: 1; }
+    .edit-name-btn:hover { color: var(--accent); background: rgba(200, 240, 74, 0.1); }
+    .edit-name-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; opacity: 1; }
+    .name-edit-input {
+      flex: 1;
+      min-width: 0;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--accent);
+      border-radius: 3px;
+      padding: 0.25rem 0.45rem;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(200, 240, 74s, 0.15);
+    }
   </style>
 </head>
 <body>
@@ -792,6 +830,7 @@
   let currentFile = null;
   let apiKeyToastTimer = null;
   const selectedRows = { hw: new Set(), sw: new Set() };
+  const editedNames = { hw: {}, sw: {} };
   const tableTotals = { hw: 0, sw: 0 };
 
   function formatSize(b) {
@@ -843,10 +882,29 @@
 
   function buildPipelineUrl() {
     const params = new URLSearchParams();
-    [...selectedRows.hw].sort((a, b) => a - b).forEach(index => params.append('hw', index));
-    [...selectedRows.sw].sort((a, b) => a - b).forEach(index => params.append('sw', index));
+
+    [...selectedRows.hw].sort((a, b) => a - b).forEach(index => {
+      params.append('hw', index);
+      const row = document.querySelector(`tr[data-row-id="row-hw-${index}"]`);
+      const name = row?.querySelector('.name-text')?.textContent?.trim();
+      if (name) params.append(`name_hw_${index}`, name);
+    });
+
+    [...selectedRows.sw].sort((a, b) => a - b).forEach(index => {
+      params.append('sw', index);
+      const row = document.querySelector(`tr[data-row-id="row-sw-${index}"]`);
+      const name = row?.querySelector('.name-text')?.textContent?.trim();
+      if (name) params.append(`name_sw_${index}`, name);
+    });
+
     const query = params.toString();
     return query ? `/run-pipeline?${query}` : '/run-pipeline';
+  }
+
+  function commitAllOpenNameEdits() {
+    document.querySelectorAll('.name-edit-input').forEach(input => {
+      input.blur();
+    });
   }
 
   function setFileInfo(file) {
@@ -944,12 +1002,31 @@
       tdChevron.style.width = '30px';
       tr.appendChild(tdChevron);
       
-      // Name cell
+      // Name cell with inline edit
       const tdName = document.createElement('td');
       tdName.className = 'name-cell';
-      tdName.textContent = row.Name || '';
       tdName.title = row.Name || '';
       tdName.style.fontWeight = '500';
+
+      const nameWrapper = document.createElement('div');
+      nameWrapper.className = 'name-cell-wrapper';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'name-text';
+      nameSpan.textContent = row.Name || '';
+
+      const editBtn = document.createElement('button');
+      editBtn.className = 'edit-name-btn';
+      editBtn.title = 'Edit name';
+      editBtn.innerHTML = '<i class="ph ph-pencil-simple" style="font-size:0.85rem;"></i>';
+      editBtn.addEventListener('click', event => {
+        event.stopPropagation();
+        startEditName(nameSpan, editBtn, tdName, typeLabel, i);
+      });
+
+      nameWrapper.appendChild(nameSpan);
+      nameWrapper.appendChild(editBtn);
+      tdName.appendChild(nameWrapper);
       tr.appendChild(tdName);
       
       // Type badge cell
@@ -1112,6 +1189,42 @@
     return true;
   }
 
+  function startEditName(nameSpan, editBtn, tdCell, typeKey, rowIndex) {
+    const original = nameSpan.textContent;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'name-edit-input';
+    input.value = original;
+
+    nameSpan.style.display = 'none';
+    editBtn.style.display = 'none';
+    tdCell.querySelector('.name-cell-wrapper').appendChild(input);
+    input.focus();
+    input.select();
+
+    let committed = false;
+    function commit() {
+      if (committed) return;
+      committed = true;
+      const newName = input.value.trim() || original;
+      nameSpan.textContent = newName;
+      editedNames[typeKey][rowIndex] = newName;
+      tdCell.title = newName;
+      const checkbox = tdCell.closest('tr')?.querySelector('.row-select');
+      if (checkbox) checkbox.title = `Select ${newName}`;
+      nameSpan.style.display = '';
+      editBtn.style.display = '';
+      input.remove();
+    }
+
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter')  { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { input.value = original; commit(); }
+    });
+    input.addEventListener('blur', commit);
+    input.addEventListener('click', e => e.stopPropagation());
+  }
+
   function toggleRow(rowElement, tableBody, rowData, type, index) {
     const expandId = `expand-${type}-${index}`;
     const expandRow = document.getElementById(expandId);
@@ -1181,21 +1294,25 @@
       const hasSW = data.sw_data && data.sw_data.length > 0;
 
       if (hasHW) {
+        editedNames.hw = {};
         renderTable(data.hw_data, hwTableHead, hwTableBody, 'hardware');
         hwTableSection.style.display = 'block';
       } else {
         hwTableSection.style.display = 'none';
         tableTotals.hw = 0;
         selectedRows.hw = new Set();
+        editedNames.hw = {};
       }
 
       if (hasSW) {
+        editedNames.sw = {};
         renderTable(data.sw_data, swTableHead, swTableBody, 'software');
         swTableSection.style.display = 'block';
       } else {
         swTableSection.style.display = 'none';
         tableTotals.sw = 0;
         selectedRows.sw = new Set();
+        editedNames.sw = {};
       }
 
       if (hasHW || hasSW) {
@@ -1238,6 +1355,8 @@
     tableTotals.sw = 0;
     selectedRows.hw = new Set();
     selectedRows.sw = new Set();
+    editedNames.hw = {};
+    editedNames.sw = {};
     // Reset pipeline button and timer
     stopTimer();
     pipelineTimerValue.textContent = '00:00.0';
@@ -1479,6 +1598,8 @@
 
   // ── Pipeline trigger ──────────────────────────────────────────────────────
   btnTriggerPipeline.addEventListener('click', () => {
+    commitAllOpenNameEdits();
+
     if (selectedRows.hw.size === 0 && selectedRows.sw.size === 0) {
       showError('Please select at least one item before running the AI pipeline.');
       return;

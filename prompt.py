@@ -58,6 +58,7 @@ def client_setup(keys): # need to include some try except error handling here
     scraper_client = types.Tool(google_search=types.GoogleSearch())
     config = types.GenerateContentConfig(
     thinking_config=thinking_setup,
+    tools=[scraper_client],
     temperature=0.0, 
     response_mime_type="application/json", 
 )
@@ -156,5 +157,4 @@ def main():
 if __name__ == '__main__':
     main()
 
-
-# Post-processing the results
+### functions for manual mode in webpage

@@ -29,6 +29,25 @@ def _parse_selected_indices(arg_name):
             continue
     return indices
 
+
+def _parse_name_overrides(type_key):
+    """Read edited names from query params like name_hw_0=New Name."""
+    prefix = f"name_{type_key}_"
+    overrides = {}
+    for key, value in request.args.items():
+        if not key.startswith(prefix):
+            continue
+        try:
+            index = int(key[len(prefix):])
+        except (TypeError, ValueError):
+            continue
+        if value is None:
+            continue
+        cleaned = str(value).strip()
+        if cleaned:
+            overrides[index] = cleaned
+    return overrides
+
 @app.route('/')
 def index():
     return render_template('file-inspector.html')
@@ -132,6 +151,8 @@ def run_pipeline():
         sw_list = _last_upload.get("sw_list", [])
         selected_hw = _parse_selected_indices("hw")
         selected_sw = _parse_selected_indices("sw")
+        hw_name_overrides = _parse_name_overrides("hw")
+        sw_name_overrides = _parse_name_overrides("sw")
 
         if not hw_list and not sw_list:
             yield sse("pipeline-error", {"error": "No data to process. Please upload a file first."})
@@ -167,13 +188,19 @@ def run_pipeline():
             return
 
         for item, item_type, index in all_items:
-            name = item if isinstance(item, str) else item.get("Name", str(item))
+            original_name = item if isinstance(item, str) else item.get("Name", str(item))
+            if item_type == "hw":
+                name = hw_name_overrides.get(index, original_name)
+            else:
+                name = sw_name_overrides.get(index, original_name)
+
+            cache_key = f"{item_type}:{name.strip().lower()}"
 
             # ── Cache hit: skip the API call entirely ──────────────────────
-            if name in _results_cache:
+            if cache_key in _results_cache:
                 yield sse("item-done", {
                     "name": name, "type": item_type, "index": index,
-                    "result": _results_cache[name], "cached": True
+                    "result": _results_cache[cache_key], "cached": True
                 })
                 processed += 1
                 continue
@@ -182,12 +209,12 @@ def run_pipeline():
             yield sse("item-start", {"name": name, "type": item_type, "index": index})
 
             try:
-                result = process_item(item, item_type, index)
+                result = process_item(name, item_type, index)
                 if result is None:
                     yield sse("item-error", {"name": name, "type": item_type, "index": index, "error": "No result returned"})
                 else:
                     processed += 1
-                    _results_cache[name] = result          # store for next run
+                    _results_cache[cache_key] = result     # store for next run
                     yield sse("item-done", {"name": name, "type": item_type, "index": index, "result": result})
             except Exception as e:
                 yield sse("item-error", {"name": name, "type": item_type, "index": index, "error": str(e)})

@@ -5,6 +5,23 @@ For a given hardware or software product, find its official End-of-Support (EOS)
 
 Execution Steps & Rules:
 
+Source URL Quality Rules (critical):
+
+Only include direct page URLs that contain the evidence used for EOS.
+
+Do NOT include search result pages, tracking links, redirect wrappers, cached pages, login-only pages, or shortened URLs.
+
+Prefer canonical HTTPS URLs from the vendor domain.
+
+Before finalizing each URL, validate that it is likely accessible and stable:
+- Keep the final resolved destination URL (not intermediary redirect URLs).
+- Remove obvious tracking query parameters (for example: utm_*).
+- Avoid URLs that look session-bound or temporary.
+
+If a candidate URL appears broken, unstable, or irrelevant, discard it and find a better source URL.
+
+If you cannot find at least one high-confidence accessible URL for a claimed date, lower Confidence accordingly and explain uncertainty in Summary.
+
 Prioritize Sources: Your search and analysis MUST prioritize sources in this exact order:
 
 Official vendor documentation (e.g., lifecycle pages, support policies, product announcements).
@@ -40,6 +57,10 @@ If no specific version EOS date is found and support is rolling, this MUST be th
 Handling No Data:
 
 If no credible sources can be found to determine an EOS date, you MUST return 'No EOS found' in the EOS Date field and an empty list for Source URLs. The Confidence must be 0.00.
+
+Handling Broken or Unreliable URLs:
+
+If all discovered links for a claim are broken/unreliable, do NOT output those links. Either find alternative reliable links or return Source URLs as [] with reduced Confidence.
 
 Output Format:
 Your response MUST ONLY be a single, raw JSON object. DO NOT include any explanatory text, markdown formatting like ```json, or any other characters before or after the JSON object.

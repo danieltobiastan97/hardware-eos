@@ -1,5 +1,6 @@
 # helper.py
 import json
+import os
 import pandas as pd
 import datetime
 import time
@@ -33,15 +34,19 @@ class Helper:
             return None
 
     """
-    Preprocesses the Excel file to extract hardware and software lists."""
+    Preprocesses the Excel or CSV file to extract hardware and software lists."""
     def preprocess(self, filename, sheet='Sheet1'):
         time_start = time.time()
         print(f'Starting Preprocessing for: {filename}...')
         
         try:
-            # 1. Load the data
-            # engine='openpyxl' is often more reliable for modern .xlsx files
-            df = pd.read_excel(filename, sheet_name=sheet)
+            # 1. Load the data — route by extension
+            ext = os.path.splitext(filename)[1].lower()
+            if ext == '.csv':
+                df = pd.read_csv(filename)
+            else:
+                # engine='openpyxl' is often more reliable for modern .xlsx files
+                df = pd.read_excel(filename, sheet_name=sheet)
 
             if df.empty:
                 print(f"Warning: The sheet '{sheet}' is empty.")
@@ -84,7 +89,7 @@ class Helper:
         except FileNotFoundError:
             print(f"Error: The file '{filename}' was not found.")
         except ValueError as e:
-            print(f"Error: Sheet '{sheet}' not found or file is corrupted. {e}")
+            print(f"Error: Sheet '{sheet}' not found, file is corrupted, or CSV is malformed. {e}")
         except PermissionError:
             print(f"Error: Permission denied. Is the file '{filename}' open in Excel?")
         except Exception as e:
