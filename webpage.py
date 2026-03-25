@@ -1,11 +1,13 @@
 import os
 import json
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import wraps
-from flask import Flask, render_template, request, jsonify, Response, stream_with_context, redirect, session, url_for
+from flask import Flask, render_template, request, jsonify, Response, stream_with_context, redirect, session, url_for, send_file
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 import time
+from io import BytesIO
 
 # Import pipeline functions from prompt.py
 from prompt import keys_and_prompt_setup, client_setup, process_line
@@ -291,16 +293,12 @@ def run_pipeline():
         pipeline_start = time.time()
         processed = 0
 
-        async def run_item(item, client, config, instruct):
-            return await process_line(item, client, config, instruct)
-
-        def process_item(item, item_type, index):
-            """Run a single item synchronously via asyncio."""
+        def process_item(name, item_type, index):
+            """Run a single item in its own asyncio event loop (called from a thread)."""
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                result = loop.run_until_complete(run_item(item, client, config, instruct))
-                return result
+                return loop.run_until_complete(process_line(name, client, config, instruct))
             finally:
                 loop.close()
 
@@ -313,37 +311,43 @@ def run_pipeline():
             yield sse("pipeline-error", {"error": "No valid selected items were found for processing."})
             return
 
+        # ── Resolve names; yield cache hits immediately; queue misses ──────
+        to_process = []
         for item, item_type, index in all_items:
             original_name = item if isinstance(item, str) else item.get("Name", str(item))
-            if item_type == "hw":
-                name = hw_name_overrides.get(index, original_name)
-            else:
-                name = sw_name_overrides.get(index, original_name)
-
+            name = (hw_name_overrides if item_type == "hw" else sw_name_overrides).get(index, original_name)
             cache_key = f"{item_type}:{name.strip().lower()}"
 
-            # ── Cache hit: skip the API call entirely ──────────────────────
             if cache_key in _results_cache:
                 yield sse("item-done", {
                     "name": name, "type": item_type, "index": index,
                     "result": _results_cache[cache_key], "cached": True
                 })
                 processed += 1
-                continue
+            else:
+                yield sse("item-start", {"name": name, "type": item_type, "index": index})
+                to_process.append((name, item_type, index, cache_key))
 
-            # ── Cache miss: call the API ───────────────────────────────────
-            yield sse("item-start", {"name": name, "type": item_type, "index": index})
-
-            try:
-                result = process_item(name, item_type, index)
-                if result is None:
-                    yield sse("item-error", {"name": name, "type": item_type, "index": index, "error": "No result returned"})
-                else:
-                    processed += 1
-                    _results_cache[cache_key] = result     # store for next run
-                    yield sse("item-done", {"name": name, "type": item_type, "index": index, "result": result})
-            except Exception as e:
-                yield sse("item-error", {"name": name, "type": item_type, "index": index, "error": str(e)})
+        # ── Process non-cached items concurrently ──────────────────────────
+        if to_process:
+            max_workers = min(len(to_process), 5)
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
+                future_to_meta = {
+                    executor.submit(process_item, name, item_type, index): (name, item_type, index, cache_key)
+                    for name, item_type, index, cache_key in to_process
+                }
+                for future in as_completed(future_to_meta):
+                    name, item_type, index, cache_key = future_to_meta[future]
+                    try:
+                        result = future.result()
+                        if result is None:
+                            yield sse("item-error", {"name": name, "type": item_type, "index": index, "error": "No result returned"})
+                        else:
+                            processed += 1
+                            _results_cache[cache_key] = result
+                            yield sse("item-done", {"name": name, "type": item_type, "index": index, "result": result})
+                    except Exception as e:
+                        yield sse("item-error", {"name": name, "type": item_type, "index": index, "error": str(e)})
 
         elapsed = time.time() - pipeline_start
         yield sse("pipeline-done", {
@@ -379,6 +383,39 @@ def pipeline_cache():
         if name in _results_cache:
             cached_items.append({"name": name, "type": "sw", "index": i, "result": _results_cache[name]})
     return jsonify({"cached": cached_items, "total_cached": len(_results_cache)})
+
+
+@app.route('/export-csv')
+@login_required
+def export_csv():
+    """Export results cache to CSV file and serve it to the user."""
+    try:
+        if not _results_cache:
+            return jsonify({"error": "No results to export. Please run the pipeline first."}), 400
+        
+        # Convert cache dict to list of results
+        results = list(_results_cache.values())
+        
+        # Use the Processing class to create DataFrame
+        df = Processing.export_to_csv(results, filename=None)
+        
+        if df is None:
+            return jsonify({"error": "Failed to process results for export."}), 500
+        
+        # Create CSV bytes
+        csv_buffer = BytesIO()
+        df.to_csv(csv_buffer, index=False)
+        csv_buffer.seek(0)
+        
+        # Return as downloadable file
+        return send_file(
+            csv_buffer,
+            mimetype="text/csv",
+            as_attachment=True,
+            download_name=f"eos_results_{int(time.time())}.csv"
+        )
+    except Exception as e:
+        return jsonify({"error": f"Export failed: {str(e)}"}), 500
 
 
 if __name__ == '__main__':

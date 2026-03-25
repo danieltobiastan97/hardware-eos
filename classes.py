@@ -176,4 +176,37 @@ class Processing:
         final_df['EOS Date'] = pd.to_datetime(final_df['EOS Date'])
         final_df['EndDate'] = pd.to_datetime(final_df['EndDate'])
         return final_df
+    
+    @staticmethod
+    def export_to_csv(results, filename=None):
+        """
+        Exports results to a CSV file or returns DataFrame for in-memory use.
+        
+        Args:
+            results: List of result dictionaries from the pipeline
+            filename: Name of the output CSV file (optional). If None, only returns DataFrame.
+            
+        Returns:
+            pandas DataFrame containing the exported data
+        """
+        try:
+            # Convert results to DataFrame
+            df = pd.DataFrame(results)
+            
+            # Flatten Support Tiers if present
+            if 'Support Tiers' in df.columns:
+                df_exploded = df.explode('Support Tiers').reset_index(drop=True)
+                tiers_df = pd.json_normalize(df_exploded['Support Tiers'])
+                df = df_exploded.drop(columns=['Support Tiers']).join(tiers_df)
+            
+            # Save to CSV if filename provided
+            if filename:
+                df.to_csv(filename, index=False)
+                print(f"Data exported to {filename}")
+            
+            return df
+            
+        except Exception as e:
+            print(f"Error exporting to CSV: {e}")
+            return None
         
