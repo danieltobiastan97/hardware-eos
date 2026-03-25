@@ -85,7 +85,7 @@ docker-compose up --build -d
 
 Default credentials (override via `.env`):
 - **Username:** `admin`
-- **Password:** `changeme`
+- **Password:** `Generate your own password`
 
 ---
 
