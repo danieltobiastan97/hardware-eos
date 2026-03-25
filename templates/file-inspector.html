@@ -153,9 +153,11 @@
     }
     .header-actions {
       display: flex;
-      align-items: flex-start;
-      justify-content: flex-end;
+      flex-direction: column;
+      align-items: flex-end;
+      justify-content: flex-start;
       flex: 0 0 auto;
+      gap: 1rem;
     }
     .btn-logout {
       padding: 0.45rem 0.8rem;
@@ -194,7 +196,8 @@
       display: flex;
       flex-direction: column;
       gap: 0.5rem;
-      align-items: flex-start;
+      align-items: flex-end;
+      text-align: right;
     }
 
     .reset-box-label {
@@ -258,8 +261,8 @@
     .btn-reset-compact {
       padding: 0.4rem 0.75rem;
       background: transparent;
-      color: var(--muted);
-      border: 1px solid var(--border);
+      color: #ff5c38;
+      border: 1px solid #ff5c38;
       border-radius: 3px;
       font-family: 'DM Mono', monospace;
       font-size: 0.65rem;
@@ -267,9 +270,9 @@
       text-transform: uppercase;
       cursor: pointer;
       transition: color 0.2s, border-color 0.2s, background 0.2s;
-      align-self: flex-start;
+      align-self: flex-end;
     }
-    .btn-reset-compact:hover { color: var(--text); border-color: var(--text); background: #1a1a1a; }
+    .btn-reset-compact:hover { color: #ffffff; border-color: #ff5c38; background: #ff5c38; }
 
     .eyebrow { font-size: 0.65rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin-bottom: 0.6rem; }
     h1 { font-family: 'Fraunces', serif; font-weight: 300; font-size: 2.4rem; line-height: 1.1; }
@@ -298,6 +301,8 @@
     .search-individual-wrap {
       display: flex;
       justify-content: flex-end;
+      gap: 0.75rem;
+      align-items: center;
       margin-bottom: 0.55rem;
     }
     .btn-search-individual {
@@ -319,6 +324,49 @@
       border-color: var(--accent-dim);
     }
     .btn-search-individual:active { transform: translateY(1px); }
+    .btn-search-individual.active {}
+
+    /* Export button for individual search */
+    .btn-export-individual {
+      padding: 0.45rem 0.8rem;
+      background: #2496ed;
+      color: #ffffff;
+      border: 1px solid #2496ed;
+      border-radius: 3px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .btn-export-individual:hover {
+      background: #1e7cb5;
+      border-color: #1e7cb5;
+      transform: translateY(-1px);
+    }
+    .btn-export-individual:active { transform: translateY(1px); }
+    .btn-export-individual:disabled {
+      background: #2a2a2a;
+      color: var(--muted);
+      border-color: #2a2a2a;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    body.light-mode .btn-export-individual {
+      background: #2496ed;
+      border-color: #2496ed;
+      color: #ffffff;
+    }
+    body.light-mode .btn-export-individual:hover {
+      background: #1e7cb5;
+      border-color: #1e7cb5;
+    }
+
     .btn-search-individual.active {
       background: transparent;
       color: var(--accent);
@@ -731,8 +779,10 @@
     .pipeline-actions {
       margin-top: 2rem;
       display: flex;
-      flex-direction: column;
+      flex-direction: row;
       align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
       gap: 1rem;
       opacity: 0;
       transform: translateY(10px);
@@ -841,6 +891,8 @@
       letter-spacing: 0.1em;
     }
 
+
+
     /* Light mode pipeline button */
     body.light-mode .btn-pipeline {
       background: linear-gradient(135deg, #7c6d1f 0%, #9a8f4a 100%);
@@ -934,6 +986,11 @@
         <h1>Asset Intelligence<br/><em>Tracker</em></h1>
         <p class="subtitle">upload → process → preview — all in one page</p>
       </div>
+    </div>
+    <div class="header-actions">
+      <form method="post" action="/logout">
+        <button class="btn-logout" type="submit">Logout</button>
+      </form>
       <div class="reset-box" id="resetBox">
         <div class="reset-box-content">
           <div class="reset-box-label">current file</div>
@@ -942,15 +999,14 @@
         </div>
       </div>
     </div>
-    <div class="header-actions">
-      <form method="post" action="/logout">
-        <button class="btn-logout" type="submit">Logout</button>
-      </form>
-    </div>
   </div>
 
   <div class="drop-zone-wrap">
     <div class="search-individual-wrap">
+      <button class="btn-export-individual" id="btnExportIndividual" type="button" title="Export individual search results to CSV">
+        <span>💾</span>
+        <span>Export</span>
+      </button>
       <button class="btn-search-individual" id="btnSearchIndividually" type="button">Search Individually</button>
     </div>
 
@@ -973,7 +1029,7 @@
           <textarea
             id="manualSearchInput"
             class="manual-search-input"
-            placeholder="Type any hardware or software name here..."
+            placeholder="Type any hardware or software name here.&#10;Use ; to separate multiple entries. Example: 'Windows 10; Adobe Photoshop; Intel Core i7'"
             rows="4"
           ></textarea>
           <button id="btnManualSubmit" class="manual-submit-btn" type="button" aria-label="Submit manual search">
@@ -1056,6 +1112,7 @@
   const dropZone    = document.getElementById('dropZone');
   const fileInput   = document.getElementById('fileInput');
   const btnSearchIndividually = document.getElementById('btnSearchIndividually');
+  const btnExportIndividual = document.getElementById('btnExportIndividual');
   const manualSearchInput = document.getElementById('manualSearchInput');
   const btnManualSubmit = document.getElementById('btnManualSubmit');
   const infoCard    = document.getElementById('infoCard');
@@ -1079,7 +1136,6 @@
   // Pipeline button elements
   const pipelineActions = document.getElementById('pipelineActions');
   const btnTriggerPipeline = document.getElementById('btnTriggerPipeline');
-
   // Hardware table elements
   const hwTableSection = document.getElementById('hwTableSection');
   const hwTableHead = document.getElementById('hwTableHead');
@@ -1094,6 +1150,9 @@
   const apiKeyToast = document.getElementById('apiKeyToast');
 
   const ALLOWED = ['.csv', '.xlsx'];
+  
+  // Initialize export button as disabled (only enabled when results exist)
+  btnExportIndividual.disabled = true;
   let currentFile = null;
   let manualMode = false;
   let manualAutoRunActive = false;
@@ -1204,12 +1263,18 @@
 
     if (hasHW || hasSW) {
       tablesContainer.classList.add('visible');
-      if (showPipeline) pipelineActions.classList.add('visible');
-      else pipelineActions.classList.remove('visible');
+      if (showPipeline) {
+        pipelineActions.classList.add('visible');
+        btnExportIndividual.disabled = false;
+      } else {
+        pipelineActions.classList.remove('visible');
+        btnExportIndividual.disabled = true;
+      }
       infoCard.classList.remove('visible');
       resetBox.classList.add('visible');
     } else {
       pipelineActions.classList.remove('visible');
+      btnExportIndividual.disabled = true;
     }
   }
 
@@ -1591,35 +1656,26 @@
             
             <div class="expand-section">
               <div class="expand-section-title">Sources</div>
-              ${sourceUrls.length > 0 ? `
-                <div class="sources-list">
-                  ${sourceUrls.map(url => `<a href="${url}" target="_blank" class="source-link">🔗 ${new URL(url).hostname}</a>`).join('')}
-                </div>
-              ` : '<div class="expand-value" style="color: #666;">No sources available.</div>'}
+              ${sourceUrls.length > 0
+                ? `<div class="sources-list">${sourceUrls.map(u => {
+                    let host = u;
+                    try { host = new URL(u).hostname; } catch(_) {}
+                    return `<a href="${u}" target="_blank" class="source-link">🔗 ${host}</a>`;
+                  }).join('')}</div>`
+                : '<div class="expand-value" style="color: #666;">No sources available.</div>'
+              }
             </div>
           </div>
           
           <div>
             <div class="expand-section">
               <div class="expand-section-title">Lifecycle Milestones</div>
-              ${supportTiers.length > 0 ? `
-                <table class="tiers-table">
-                  <thead>
-                    <tr>
-                      <th>Tier</th>
-                      <th>End Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${supportTiers.map(t => `
-                      <tr>
-                        <td>${t.Tier || ''}</td>
-                        <td>${t.EndDate || ''}</td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-              ` : '<div class="expand-value" style="color: #666;">No milestones available.</div>'}
+              ${supportTiers.length > 0
+                ? `<table class="tiers-table"><thead><tr><th>Tier</th><th>End Date</th></tr></thead><tbody>
+                  ${supportTiers.map(t => `<tr><td>${t.Tier||''}</td><td>${t.EndDate||''}</td></tr>`).join('')}
+                 </tbody></table>`
+                : '<div class="expand-value" style="color:#666;">No milestones available.</div>'
+              }
             </div>
           </div>
         </div>
@@ -1740,6 +1796,7 @@
     infoCard.classList.remove('visible');
     tablesContainer.classList.remove('visible');
     pipelineActions.classList.remove('visible');
+    btnExportIndividual.disabled = true;
     processingSummary.classList.remove('visible');
     resetBox.classList.remove('visible');
     dropZone.classList.remove('hidden');
@@ -1775,6 +1832,7 @@
     manualSearchInput.value = '';
     toggleManualMode(true);
     pipelineActions.classList.remove('visible');
+    btnExportIndividual.disabled = true;
     setTimeout(() => manualSearchInput.focus(), 50);
   }
 
@@ -1839,6 +1897,7 @@
     processingSummary.classList.add('visible');
     tablesContainer.classList.add('visible');
     pipelineActions.classList.add('visible');
+    btnExportIndividual.disabled = false;
     dropZone.classList.add('hidden');
     infoCard.classList.remove('visible');
     resetBoxFile.textContent = 'test-data.xlsx';
@@ -1878,6 +1937,47 @@
       reset();
     } else {
       startFreshIndividualSearch();
+    }
+  });
+
+  btnExportIndividual.addEventListener('click', async () => {
+    try {
+      btnExportIndividual.disabled = true;
+      const textSpan = btnExportIndividual.querySelector('span:last-child');
+      const originalText = textSpan.textContent;
+      textSpan.textContent = 'Exporting...';
+
+      const response = await fetch('/export-csv');
+      if (!response.ok) {
+        const error = await response.json();
+        showError(error.error || 'Failed to export CSV');
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = 'eos_results.csv';
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename[^;=\n]*=([^;\n]*)/);
+        if (match[1]) filename = match[1].trim().replace(/^"(.+)"$/, '$1');
+      }
+      
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      clearError();
+    } catch (error) {
+      showError('Error exporting CSV: ' + error.message);
+    } finally {
+      btnExportIndividual.disabled = false;
+      btnExportIndividual.querySelector('span:last-child').textContent = 'Export';
     }
   });
 
@@ -2003,7 +2103,7 @@
                   try { host = new URL(u).hostname; } catch(_) {}
                   return `<a href="${u}" target="_blank" class="source-link">🔗 ${host}</a>`;
                 }).join('')}</div>`
-              : '<div class="expand-value" style="color:#666;">No sources available.</div>'
+              : '<div class="expand-value" style="color: #666;">No sources available.</div>'
             }
           </div>
         </div>
@@ -2102,6 +2202,7 @@
       es.close();
       clearWatchdog();
       btnTriggerPipeline.disabled = false;
+      btnExportIndividual.disabled = false;
       const parts = [`${d.processed}/${d.total} items`];
       if (cachedCount > 0) parts.push(`${cachedCount} from cache`);
       if (liveCount > 0)   parts.push(`${liveCount} via API`);
@@ -2136,6 +2237,8 @@
   }
 
   btnTriggerPipeline.addEventListener('click', () => startPipelineRun(false));
+
+
 </script>
 </body>
 </html>
