@@ -837,6 +837,10 @@
     .row-spinner.active { display: block; }
     .row-status-icon { display: none; font-size: 0.9rem; }
     .row-status-icon.visible { display: block; }
+    .row-status-icon.cached { cursor: pointer; transition: transform 0.2s ease; }
+    .row-status-icon.cached:hover { transform: scale(1.2); }
+    .row-status-icon.refreshing { animation: spin-refresh 0.6s linear infinite; color: #2ecc71 !important; }
+    @keyframes spin-refresh { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
     .btn-pipeline {
       display: flex;
@@ -2011,6 +2015,92 @@
   let _timerStart = null;
   let _timerRAF   = null;
 
+  async function refreshItemFromAPI(type, index, itemName) {
+    const icon = document.getElementById(`icon-${type}-${index}`);
+    if (!icon || !itemName) return;
+    
+    // Show loading state with spinning animation
+    const originalChar = icon.textContent;
+    icon.textContent = '↻'; // Spinning refresh symbol
+    icon.style.color = ''; // Let .refreshing CSS class control the color
+    icon.classList.add('refreshing'); // Add spinning animation (green via CSS)
+    icon.disabled = true;
+    
+    try {
+      // Call the refresh endpoint
+      const response = await fetch('/refresh-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          item_name: itemName,
+          item_type: type
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok || data.error) {
+        throw new Error(data.error || `Refresh failed`);
+      }
+      
+      // Remove spinning animation before updating
+      icon.classList.remove('refreshing');
+      
+      // Update the display with fresh result (will show ✓ green)
+      rowSetDone(type, index, data.result, false, 'api');
+      
+      // Update expanded row if visible
+      const expandedRow = document.querySelector(`#expand-${type}-${index}`);
+      if (expandedRow && expandedRow.style.display !== 'none') {
+        const expandTd = expandedRow.querySelector('td');
+        if (expandTd && data.result) {
+          // Trigger a re-render of expanded content by simulating rowSetDone
+          const summary     = data.result.Summary || '';
+          const support     = data.result['Support Model'] || 'N/A';
+          const urls        = data.result['Source URLs'] || [];
+          const tiers       = data.result['Support Tiers'] || [];
+
+          expandTd.querySelector('.expand-content-grid').innerHTML = `
+            <div>
+              <div class="expand-section">
+                <div class="expand-section-title">Executive Summary</div>
+                <div class="expand-value">${summary || 'No summary available.'}</div>
+              </div>
+              <div class="expand-section">
+                <div class="expand-section-title">Support Model</div>
+                <div class="support-model-box">
+                  <div class="expand-value">${support}</div>
+                </div>
+              </div>
+              <div class="expand-section">
+                <div class="expand-section-title">Sources</div>
+                ${urls.length > 0
+                  ? `<div class="sources-list">${urls.map(u => {
+                      let host = u;
+                      try { host = new URL(u).hostname; } catch(_) {}
+                      return `<a href="${u}" target="_blank" class="source-link">🔗 ${host}</a>`;
+                    }).join('')}</div>`
+                  : '<div class="expand-value" style="color: #666;">No sources available.</div>'
+                }
+              </div>
+            </div>`;
+        }
+      }
+      
+      // Success - icon already updated by rowSetDone
+      
+    } catch (err) {
+      console.error('Refresh error:', err);
+      showError('Failed to refresh: ' + err.message);
+      
+      // Restore icon to original state
+      icon.classList.remove('refreshing');
+      icon.textContent = originalChar;
+      icon.style.color = '#ffffff'; // Back to white for cached
+      icon.disabled = false;
+    }
+  }
+
   function startTimer() {
     _timerStart = performance.now();
     pipelineTimer.classList.add('running');
@@ -2040,15 +2130,49 @@
     if (icon)    { icon.textContent = ''; icon.classList.remove('visible'); }
   }
 
-  function rowSetDone(type, index, result, fromCache = false) {
+  function rowSetDone(type, index, result, fromCache = false, cachedFrom = 'api') {
     const spinner = document.getElementById(`spinner-${type}-${index}`);
     const icon    = document.getElementById(`icon-${type}-${index}`);
     if (spinner) spinner.classList.remove('active');
     if (icon) {
-      icon.textContent = fromCache ? '◎' : '✓';
-      icon.style.color = fromCache ? '#4ab8f0' : '#2ecc71';
-      icon.title = fromCache ? 'Loaded from cache' : 'Processed by AI';
+      // Set icon and color based on cache source
+      let iconChar = '✓';
+      let iconColor = '#2ecc71'; // Green for fresh API
+      let iconTitle = 'Processed by AI (fresh)';
+      
+      if (cachedFrom === 'database') {
+        iconChar = '◈'; // Cached from database
+        iconColor = '#89b4fa'; // Light blue
+        iconTitle = 'Cached — click to refresh from API';
+      } else if (cachedFrom === 'memory') {
+        iconChar = '◈'; // Cached from memory
+        iconColor = '#cba6f7'; // Purple
+        iconTitle = 'Memory cached — click to refresh from API';
+      }
+      
+      icon.textContent = iconChar;
+      icon.style.color = iconColor;
+      icon.title = iconTitle;
       icon.classList.add('visible');
+      icon.setAttribute('data-cache-source', cachedFrom);
+      
+      // Add cached class and interaction handlers
+      if (cachedFrom !== 'api') {
+        icon.classList.add('cached');
+        icon.setAttribute('data-type', type);
+        icon.setAttribute('data-index', index);
+        icon.setAttribute('data-item-name', result?.Name || '');
+        
+        // Use property assignment (not addEventListener) to prevent stacking on re-runs
+        icon.onmouseenter = () => { if (!icon.classList.contains('refreshing')) { icon.textContent = iconChar + ' ↻'; } };
+        icon.onmouseleave = () => { if (!icon.classList.contains('refreshing')) icon.textContent = iconChar; };
+        icon.onclick     = (e) => { e.stopPropagation(); refreshItemFromAPI(type, index, result?.Name || ''); };
+      } else {
+        // Clear any stale handlers from a previous cached state
+        icon.onmouseenter = null;
+        icon.onmouseleave = null;
+        icon.onclick = null;
+      }
     }
 
     // Patch the visible row cells with fresh data from the AI result
@@ -2178,10 +2302,10 @@
       const d = JSON.parse(e.data);
       if (d.cached) {
         cachedCount++;
-        rowSetDone(d.type, d.index, d.result, true);
+        rowSetDone(d.type, d.index, d.result, true, d.cached_from);
       } else {
         liveCount++;
-        rowSetDone(d.type, d.index, d.result, false);
+        rowSetDone(d.type, d.index, d.result, false, d.cached_from);
       }
       if (manualAutoRunActive || autoFromManual) {
         routeManualResultToTable(d);

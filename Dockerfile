@@ -10,7 +10,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY classes.py prompt.py webpage.py prompt.txt ./
+COPY classes.py models.py prompt.py webpage.py prompt.txt ./
 COPY templates/ templates/
 
 # uploads/ is created at runtime by the app; no need to COPY it

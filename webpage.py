@@ -13,10 +13,23 @@ from io import BytesIO
 from prompt import keys_and_prompt_setup, client_setup, process_line
 from classes import Helper, Processing
 
+# Import database
+from models import init_database, ProductEOSRepo, parse_date
+
 app = Flask(__name__)
 app.secret_key = os.getenv("APP_SECRET_KEY", "change-this-secret-key")
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+# Initialize database for cache
+try:
+    db_engine, db_session = init_database("sqlite:///asset_cache.db")
+    db_repo = ProductEOSRepo(db_session)
+    DATABASE_ENABLED = True
+except Exception as e:
+    print(f"Warning: Database initialization failed: {e}")
+    DATABASE_ENABLED = False
+    db_repo = None
 
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = os.getenv("APP_ADMIN_PASSWORD", "changeme")
@@ -26,6 +39,39 @@ ADMIN_PASSWORD_HASH = os.getenv("APP_ADMIN_PASSWORD_HASH")
 # Results are keyed by item name so re-running skips already-processed items
 _last_upload = {"hw_list": [], "sw_list": []}
 _results_cache = {}   # name -> result dict
+
+# Cache status tracking
+def check_cache(item_name):
+    """Check if item exists in database cache."""
+    if not DATABASE_ENABLED or not db_repo:
+        return None
+    try:
+        return db_repo.get_product_by_name(item_name)
+    except Exception:
+        return None
+
+def save_to_cache(item_name, item_type, result_data, processing_time=0.0):
+    """Save processing result to database cache."""
+    if not DATABASE_ENABLED or not db_repo:
+        return False
+    try:
+        # For now, save to asset_cache table for general items
+        # In future, could save ProductEOS for product/software tracking
+        from models import assetCache
+        cache_entry = assetCache(
+            item_name=item_name,
+            item_type=item_type,
+            result=json.dumps(result_data) if isinstance(result_data, dict) else result_data,
+            status='success',
+            processing_time=processing_time
+        )
+        db_session.add(cache_entry)
+        db_session.commit()
+        return True
+    except Exception as e:
+        print(f"Cache save error: {e}")
+        return False
+
 
 
 def _is_authenticated():
@@ -318,15 +364,42 @@ def run_pipeline():
             name = (hw_name_overrides if item_type == "hw" else sw_name_overrides).get(index, original_name)
             cache_key = f"{item_type}:{name.strip().lower()}"
 
+            # Check in-memory cache first
             if cache_key in _results_cache:
                 yield sse("item-done", {
                     "name": name, "type": item_type, "index": index,
-                    "result": _results_cache[cache_key], "cached": True
+                    "result": _results_cache[cache_key], "cached": True, "cached_from": "memory"
                 })
                 processed += 1
             else:
-                yield sse("item-start", {"name": name, "type": item_type, "index": index})
-                to_process.append((name, item_type, index, cache_key))
+                # Check database cache
+                db_cached = None
+                if DATABASE_ENABLED and db_repo:
+                    try:
+                        from models import assetCache
+                        db_session.expire_all()  # Ensure fresh data from DB
+                        db_cached = db_session.query(assetCache).filter_by(item_name=name).first()
+                        print(f"[CACHE] DB lookup for '{name}': {'HIT' if db_cached else 'MISS'}")
+                    except Exception as db_err:
+                        print(f"[CACHE] DB lookup error for '{name}': {db_err}")
+                        db_cached = None
+                
+                if db_cached:
+                    try:
+                        cached_result = json.loads(db_cached.result) if isinstance(db_cached.result, str) else db_cached.result
+                        _results_cache[cache_key] = cached_result  # Populate in-memory too
+                        yield sse("item-done", {
+                            "name": name, "type": item_type, "index": index,
+                            "result": cached_result, "cached": True, "cached_from": "database"
+                        })
+                        processed += 1
+                    except Exception:
+                        # If cache is corrupted, reprocess
+                        yield sse("item-start", {"name": name, "type": item_type, "index": index})
+                        to_process.append((name, item_type, index, cache_key))
+                else:
+                    yield sse("item-start", {"name": name, "type": item_type, "index": index})
+                    to_process.append((name, item_type, index, cache_key))
 
         # ── Process non-cached items concurrently ──────────────────────────
         if to_process:
@@ -345,7 +418,27 @@ def run_pipeline():
                         else:
                             processed += 1
                             _results_cache[cache_key] = result
-                            yield sse("item-done", {"name": name, "type": item_type, "index": index, "result": result})
+                            
+                            # Save to database cache
+                            if DATABASE_ENABLED and db_repo:
+                                try:
+                                    from models import assetCache
+                                    cache_entry = assetCache(
+                                        item_name=name,
+                                        item_type=item_type,
+                                        result=json.dumps(result) if isinstance(result, dict) else result,
+                                        status='success',
+                                        processing_time=0.0
+                                    )
+                                    db_session.add(cache_entry)
+                                    db_session.commit()
+                                except Exception as e:
+                                    print(f"Database cache save error: {e}")
+                            
+                            yield sse("item-done", {
+                                "name": name, "type": item_type, "index": index, 
+                                "result": result, "cached": False, "cached_from": "api"
+                            })
                     except Exception as e:
                         yield sse("item-error", {"name": name, "type": item_type, "index": index, "error": str(e)})
 
@@ -383,6 +476,68 @@ def pipeline_cache():
         if name in _results_cache:
             cached_items.append({"name": name, "type": "sw", "index": i, "result": _results_cache[name]})
     return jsonify({"cached": cached_items, "total_cached": len(_results_cache)})
+
+
+@app.route('/refresh-item', methods=['POST'])
+@login_required
+def refresh_item():
+    """Refresh a single item by re-calling the API and updating database cache."""
+    try:
+        data = request.get_json(silent=True) or {}
+        item_name = data.get('item_name', '').strip()
+        item_type = data.get('item_type', '').strip()
+        
+        if not item_name:
+            return jsonify({"error": "Item name required"}), 400
+        
+        # Set up API
+        keys, instruct = keys_and_prompt_setup()
+        client, config = client_setup(keys)
+        
+        # Call process_line to get fresh result
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            result = loop.run_until_complete(process_line(item_name, client, config, instruct))
+        finally:
+            loop.close()
+        
+        if result is None:
+            return jsonify({"error": "Failed to process item"}), 500
+        
+        # Update in-memory cache
+        cache_key = f"{item_type}:{item_name.strip().lower()}"
+        _results_cache[cache_key] = result
+        
+        # Update database cache (replace old entry)
+        if DATABASE_ENABLED and db_repo:
+            try:
+                from models import assetCache
+                # Delete old entry if exists
+                db_session.query(assetCache).filter_by(item_name=item_name).delete()
+                db_session.commit()
+                
+                # Insert new entry
+                cache_entry = assetCache(
+                    item_name=item_name,
+                    item_type=item_type,
+                    result=json.dumps(result) if isinstance(result, dict) else result,
+                    status='success',
+                    processing_time=0.0
+                )
+                db_session.add(cache_entry)
+                db_session.commit()
+            except Exception as e:
+                print(f"Database update error on refresh: {e}")
+        
+        return jsonify({
+            "success": True,
+            "result": result,
+            "item_name": item_name
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Refresh failed: {str(e)}"}), 500
 
 
 @app.route('/export-csv')
