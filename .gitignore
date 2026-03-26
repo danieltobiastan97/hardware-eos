@@ -1,0 +1,11 @@
+hardware_eos.db
+asset_cache.db
+*.db
+keys.json
+.env
+.DS_Store
+__pycache__/
+*.pyc
+uploads/
+testing_files/
+

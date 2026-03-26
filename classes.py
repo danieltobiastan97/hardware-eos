@@ -1,5 +1,6 @@
 # helper.py
 import json
+import os
 import pandas as pd
 import datetime
 import time
@@ -33,15 +34,19 @@ class Helper:
             return None
 
     """
-    Preprocesses the Excel file to extract hardware and software lists."""
+    Preprocesses the Excel or CSV file to extract hardware and software lists."""
     def preprocess(self, filename, sheet='Sheet1'):
         time_start = time.time()
         print(f'Starting Preprocessing for: {filename}...')
         
         try:
-            # 1. Load the data
-            # engine='openpyxl' is often more reliable for modern .xlsx files
-            df = pd.read_excel(filename, sheet_name=sheet)
+            # 1. Load the data — route by extension
+            ext = os.path.splitext(filename)[1].lower()
+            if ext == '.csv':
+                df = pd.read_csv(filename)
+            else:
+                # engine='openpyxl' is often more reliable for modern .xlsx files
+                df = pd.read_excel(filename, sheet_name=sheet)
 
             if df.empty:
                 print(f"Warning: The sheet '{sheet}' is empty.")
@@ -84,7 +89,7 @@ class Helper:
         except FileNotFoundError:
             print(f"Error: The file '{filename}' was not found.")
         except ValueError as e:
-            print(f"Error: Sheet '{sheet}' not found or file is corrupted. {e}")
+            print(f"Error: Sheet '{sheet}' not found, file is corrupted, or CSV is malformed. {e}")
         except PermissionError:
             print(f"Error: Permission denied. Is the file '{filename}' open in Excel?")
         except Exception as e:
@@ -171,4 +176,37 @@ class Processing:
         final_df['EOS Date'] = pd.to_datetime(final_df['EOS Date'])
         final_df['EndDate'] = pd.to_datetime(final_df['EndDate'])
         return final_df
+    
+    @staticmethod
+    def export_to_csv(results, filename=None):
+        """
+        Exports results to a CSV file or returns DataFrame for in-memory use.
+        
+        Args:
+            results: List of result dictionaries from the pipeline
+            filename: Name of the output CSV file (optional). If None, only returns DataFrame.
+            
+        Returns:
+            pandas DataFrame containing the exported data
+        """
+        try:
+            # Convert results to DataFrame
+            df = pd.DataFrame(results)
+            
+            # Flatten Support Tiers if present
+            if 'Support Tiers' in df.columns:
+                df_exploded = df.explode('Support Tiers').reset_index(drop=True)
+                tiers_df = pd.json_normalize(df_exploded['Support Tiers'])
+                df = df_exploded.drop(columns=['Support Tiers']).join(tiers_df)
+            
+            # Save to CSV if filename provided
+            if filename:
+                df.to_csv(filename, index=False)
+                print(f"Data exported to {filename}")
+            
+            return df
+            
+        except Exception as e:
+            print(f"Error exporting to CSV: {e}")
+            return None
         

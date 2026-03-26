@@ -1,0 +1,21 @@
+services:
+  hardware-eos:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hardware-eos
+    ports:
+      - "3000:5000"
+    environment:
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-change-this-secret-key}
+      APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:-changeme}
+    volumes:
+      - ./keys.json:/app/keys.json:ro
+      - ./classes.py:/app/classes.py
+      - ./webpage.py:/app/webpage.py
+      - ./models.py:/app/models.py
+      - ./prompt.py:/app/prompt.py
+      - ./prompt.txt:/app/prompt.txt
+      - ./templates/:/app/templates/
+      - ./asset_cache.db:/app/asset_cache.db
+    restart: unless-stopped

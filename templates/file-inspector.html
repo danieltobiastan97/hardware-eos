@@ -39,6 +39,16 @@
     /* Light mode specific overrides */
     body.light-mode .drop-zone:hover, 
     body.light-mode .drop-zone.dragover { background: #fffef0; }
+
+    body.light-mode .drop-zone.manual-mode {
+      background: linear-gradient(160deg, rgba(124, 109, 31, 0.08), rgba(255, 255, 255, 0.98));
+      border-color: rgba(124, 109, 31, 0.22);
+    }
+
+    body.light-mode .manual-search-input {
+      background: #ffffff;
+      border: none;
+    }
     
     body.light-mode thead tr { background: #f0f0f0; }
     
@@ -84,7 +94,27 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      padding: 2rem 2rem 4rem;
+      padding: 4.6rem 2rem 4rem;
+    }
+
+    .beta-banner {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 40;
+      padding: 0.62rem 1rem;
+      text-align: center;
+      font-size: 0.68rem;
+      letter-spacing: 0.06em;
+      background: rgba(255, 149, 0, 0.95);
+      color: #fff8f4;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+      backdrop-filter: blur(4px);
+    }
+    body.light-mode .beta-banner {
+      background: rgba(232, 134, 0, 0.95);
+      color: #fff;
     }
 
     body::before {
@@ -103,20 +133,62 @@
       max-width: 900px;
     }
 
-    /* Top right reset box */
+    /* Header actions */
+    .header {
+      margin-bottom: 2rem;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1.5rem;
+    }
+    .header-main {
+      display: flex;
+      align-items: flex-start;
+      gap: 1rem;
+      flex-wrap: wrap;
+      min-width: 0;
+    }
+    .header-copy {
+      min-width: 0;
+    }
+    .header-actions {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      justify-content: flex-start;
+      flex: 0 0 auto;
+      gap: 1rem;
+    }
+    .btn-logout {
+      padding: 0.45rem 0.8rem;
+      background: transparent;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 3px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: color 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+    }
+    .btn-logout:hover {
+      color: var(--text);
+      border-color: var(--accent);
+      background: rgba(200, 240, 74, 0.08);
+    }
+
+    /* Inline reset box */
     .reset-box {
-      position: fixed;
-      top: 2rem;
-      right: 2rem;
       background: var(--surface);
       border: 1px solid var(--border);
       border-radius: 4px;
       padding: 0.75rem 1rem;
+      min-width: 220px;
       opacity: 0;
       transform: translateY(-10px);
       transition: opacity 0.35s ease, transform 0.35s ease;
       pointer-events: none;
-      z-index: 10;
     }
     .reset-box.visible { opacity: 1; transform: translateY(0); pointer-events: all; }
 
@@ -125,6 +197,7 @@
       flex-direction: column;
       gap: 0.5rem;
       align-items: flex-end;
+      text-align: right;
     }
 
     .reset-box-label {
@@ -135,10 +208,16 @@
     }
 
     /* Theme toggle */
-    .theme-toggle {
+    .theme-toggle-wrap {
       position: fixed;
       bottom: 2rem;
       left: 2rem;
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      z-index: 10;
+    }
+    .theme-toggle {
       display: flex;
       align-items: center;
       gap: 0.5rem;
@@ -148,27 +227,42 @@
       padding: 0.4rem 0.6rem;
       cursor: pointer;
       transition: all 0.3s ease;
-      z-index: 10;
     }
     .theme-toggle:hover { border-color: var(--accent); }
     .theme-toggle-icon { width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; font-size: 0.9rem; }
     .theme-toggle-label { font-size: 0.65rem; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); transition: color 0.3s ease; }
     .theme-toggle:hover .theme-toggle-label { color: var(--accent); }
+    .theme-toggle-note {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 0.34rem 0.55rem;
+      font-size: 0.58rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .theme-toggle.disabled {
+      cursor: not-allowed;
+      pointer-events: none;
+      opacity: 0.45;
+      filter: grayscale(0.3);
+    }
 
     .reset-box-file {
       font-size: 0.75rem;
       color: var(--accent);
       font-weight: 500;
       max-width: 180px;
-      text-align: right;
+      text-align: left;
       word-break: break-word;
     }
 
     .btn-reset-compact {
       padding: 0.4rem 0.75rem;
       background: transparent;
-      color: var(--muted);
-      border: 1px solid var(--border);
+      color: #ff5c38;
+      border: 1px solid #ff5c38;
       border-radius: 3px;
       font-family: 'DM Mono', monospace;
       font-size: 0.65rem;
@@ -178,13 +272,106 @@
       transition: color 0.2s, border-color 0.2s, background 0.2s;
       align-self: flex-end;
     }
-    .btn-reset-compact:hover { color: var(--text); border-color: var(--text); background: #1a1a1a; }
+    .btn-reset-compact:hover { color: #ffffff; border-color: #ff5c38; background: #ff5c38; }
 
-    .header { margin-bottom: 2rem; }
     .eyebrow { font-size: 0.65rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin-bottom: 0.6rem; }
     h1 { font-family: 'Fraunces', serif; font-weight: 300; font-size: 2.4rem; line-height: 1.1; }
     h1 em { font-style: italic; color: var(--accent); }
     .subtitle { margin-top: 0.75rem; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.05em; }
+    @media (max-width: 760px) {
+      .header {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .header-main {
+        flex-direction: column;
+      }
+      .header-actions {
+        justify-content: flex-start;
+      }
+      .reset-box {
+        width: 100%;
+        min-width: 0;
+      }
+    }
+    .drop-zone-wrap {
+      position: relative;
+      margin-top: 0.25rem;
+    }
+    .search-individual-wrap {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.75rem;
+      align-items: center;
+      margin-bottom: 0.55rem;
+    }
+    .btn-search-individual {
+      padding: 0.45rem 0.8rem;
+      background: var(--accent);
+      color: #0d0d0d;
+      border: 1px solid var(--accent);
+      border-radius: 3px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.11em;
+      text-transform: uppercase;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.1s ease, border-color 0.2s ease;
+    }
+    .btn-search-individual:hover {
+      background: var(--accent-dim);
+      border-color: var(--accent-dim);
+    }
+    .btn-search-individual:active { transform: translateY(1px); }
+    .btn-search-individual.active {}
+
+    /* Export button for individual search */
+    .btn-export-individual {
+      padding: 0.45rem 0.8rem;
+      background: #2496ed;
+      color: #ffffff;
+      border: 1px solid #2496ed;
+      border-radius: 3px;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.62rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+    .btn-export-individual:hover {
+      background: #1e7cb5;
+      border-color: #1e7cb5;
+      transform: translateY(-1px);
+    }
+    .btn-export-individual:active { transform: translateY(1px); }
+    .btn-export-individual:disabled {
+      background: #2a2a2a;
+      color: var(--muted);
+      border-color: #2a2a2a;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    body.light-mode .btn-export-individual {
+      background: #2496ed;
+      border-color: #2496ed;
+      color: #ffffff;
+    }
+    body.light-mode .btn-export-individual:hover {
+      background: #1e7cb5;
+      border-color: #1e7cb5;
+    }
+
+    .btn-search-individual.active {
+      background: transparent;
+      color: var(--accent);
+      border-color: var(--accent);
+    }
 
     /* Drop zone */
     .drop-zone {
@@ -208,6 +395,96 @@
     .drop-label { font-size: 0.78rem; color: var(--muted); line-height: 1.8; }
     .drop-label span { color: var(--accent); }
     .accepted { display: block; margin-top: 0.4rem; font-size: 0.64rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--muted); }
+    .manual-search-panel {
+      display: none;
+      position: relative;
+      width: 100%;
+      min-height: 168px;
+      text-align: left;
+    }
+    .manual-input-wrap {
+      position: relative;
+      width: 100%;
+    }
+    .drop-zone.manual-mode {
+      cursor: default;
+      border: none;
+      background: linear-gradient(160deg, rgba(200, 240, 74, 0.08), rgba(20, 20, 20, 0.95));
+    }
+    .drop-zone.manual-mode .drop-upload-content,
+    .drop-zone.manual-mode input[type="file"] {
+      display: none;
+    }
+    .drop-zone.manual-mode .manual-search-panel {
+      display: block;
+    }
+    .manual-search-input {
+      width: 100%;
+      min-height: 128px;
+      resize: vertical;
+      border: 1px solid var(--accent);
+      border-radius: 4px;
+      background: rgba(13, 13, 13, 0.6);
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 0.8rem;
+      line-height: 1.5;
+      padding: 0.9rem 3.1rem 0.9rem 0.95rem;
+      outline: none;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .manual-search-input:focus {
+      box-shadow: none;
+    }
+    .manual-submit-btn {
+      position: absolute;
+      right: 0.65rem;
+      bottom: 0.65rem;
+      width: 36px;
+      height: 24px;
+      border: 1px solid var(--accent);
+      border-radius: 3px;
+      background: var(--accent);
+      color: #0d0d0d;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.2s ease, transform 0.1s ease;
+    }
+    .manual-submit-btn:hover { background: var(--accent-dim); }
+    .manual-submit-btn:active { transform: scale(0.96); }
+    .manual-submit-btn:disabled {
+      background: #2a2a2a;
+      color: var(--muted);
+      cursor: not-allowed;
+    }
+    @keyframes go-spin { to { transform: rotate(360deg); } }
+    .manual-submit-btn .go-spinner {
+      display: none;
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(0,0,0,0.2);
+      border-top-color: #0d0d0d;
+      border-radius: 50%;
+      animation: go-spin 0.6s linear infinite;
+    }
+    .manual-submit-btn.loading .go-text { display: none; }
+    .manual-submit-btn.loading .go-spinner { display: block; }
+    .manual-timer-display {
+      position: absolute;
+      right: calc(0.65rem + 46px);
+      bottom: 0.83rem;
+      font-size: 0.68rem;
+      font-family: 'DM Mono', monospace;
+      color: var(--muted);
+      pointer-events: none;
+    }
 
     /* File info card */
     .info-card {
@@ -298,7 +575,7 @@
 
     .toast {
       position: fixed;
-      top: 1.5rem;
+      top: 3.4rem;
       left: 50%;
       transform: translate(-50%, -16px);
       padding: 0.85rem 1.1rem;
@@ -502,8 +779,10 @@
     .pipeline-actions {
       margin-top: 2rem;
       display: flex;
-      flex-direction: column;
+      flex-direction: row;
       align-items: center;
+      justify-content: center;
+      flex-wrap: wrap;
       gap: 1rem;
       opacity: 0;
       transform: translateY(10px);
@@ -558,6 +837,10 @@
     .row-spinner.active { display: block; }
     .row-status-icon { display: none; font-size: 0.9rem; }
     .row-status-icon.visible { display: block; }
+    .row-status-icon.cached { cursor: pointer; transition: transform 0.2s ease; }
+    .row-status-icon.cached:hover { transform: scale(1.2); }
+    .row-status-icon.refreshing { animation: spin-refresh 0.6s linear infinite; color: #2ecc71 !important; }
+    @keyframes spin-refresh { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
     .btn-pipeline {
       display: flex;
@@ -612,6 +895,8 @@
       letter-spacing: 0.1em;
     }
 
+
+
     /* Light mode pipeline button */
     body.light-mode .btn-pipeline {
       background: linear-gradient(135deg, #7c6d1f 0%, #9a8f4a 100%);
@@ -625,12 +910,54 @@
     body.light-mode .btn-pipeline:active {
       box-shadow: 0 2px 8px rgba(124, 109, 31, 0.25);
     }
+
+    /* Inline name editing */
+    .name-cell-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+    .edit-name-btn {
+      flex-shrink: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 0.2rem;
+      border-radius: 3px;
+      color: var(--muted);
+      opacity: 0;
+      transition: opacity 0.15s ease, color 0.15s ease, background 0.15s ease;
+    }
+    tr:hover .edit-name-btn { opacity: 1; }
+    .edit-name-btn:hover { color: var(--accent); background: rgba(200, 240, 74, 0.1); }
+    .edit-name-btn:focus-visible { outline: 1px solid var(--accent); outline-offset: 2px; opacity: 1; }
+    .name-edit-input {
+      flex: 1;
+      min-width: 0;
+      font-family: 'DM Mono', monospace;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--text);
+      background: var(--bg);
+      border: 1px solid var(--accent);
+      border-radius: 3px;
+      padding: 0.25rem 0.45rem;
+      outline: none;
+      box-shadow: 0 0 0 2px rgba(200, 240, 74, 0.15);
+    }
   </style>
 </head>
 <body>
-<div class="theme-toggle" id="themeToggle">
-  <div class="theme-toggle-icon" id="themeIcon">🌙</div>
-  <div class="theme-toggle-label" id="themeLabel">light</div>
+<div class="beta-banner">⚠️ Beta — AI-generated results may not be accurate. Please validate before use.</div>
+<div class="theme-toggle-wrap">
+  <div class="theme-toggle disabled" id="themeToggle">
+    <div class="theme-toggle-icon" id="themeIcon">🌙</div>
+    <div class="theme-toggle-label" id="themeLabel">dark</div>
+  </div>
+  <div class="theme-toggle-note">coming soon</div>
 </div>
 
 <div class="toast" id="apiKeyToast">Error: Check Valid API Key</div>
@@ -655,32 +982,68 @@
   </div>
 </div>
 
-<div class="reset-box" id="resetBox">
-  <div class="reset-box-content">
-    <div class="reset-box-label">current file</div>
-    <div class="reset-box-file" id="resetBoxFile">—</div>
-    <button class="btn-reset-compact" id="btnResetCompact">Reset</button>
-  </div>
-</div>
-
 <div class="container">
   <div class="header">
-    <p class="eyebrow">// Asset EOS/EOL tracker</p>
-    <h1>Asset Intelligence<br/><em>Tracker</em></h1>
-    <p class="subtitle">upload → process → preview — all in one page</p>
+    <div class="header-main">
+      <div class="header-copy">
+        <p class="eyebrow">// Asset EOS/EOL tracker</p>
+        <h1>Asset Intelligence<br/><em>Tracker</em></h1>
+        <p class="subtitle">upload → process → preview — all in one page</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <form method="post" action="/logout">
+        <button class="btn-logout" type="submit">Logout</button>
+      </form>
+      <div class="reset-box" id="resetBox">
+        <div class="reset-box-content">
+          <div class="reset-box-label">current file</div>
+          <div class="reset-box-file" id="resetBoxFile">—</div>
+          <button class="btn-reset-compact" id="btnResetCompact">Reset</button>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <div class="drop-zone" id="dropZone">
-    <input type="file" id="fileInput" accept=".csv,.xlsx" />
-    <div class="drop-icon">
-      <svg viewBox="0 0 24 24" stroke-width="1.5">
-        <path d="M12 16V8m0 0-3 3m3-3 3 3M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1"/>
-      </svg>
+  <div class="drop-zone-wrap">
+    <div class="search-individual-wrap">
+      <button class="btn-export-individual" id="btnExportIndividual" type="button" title="Export individual search results to CSV">
+        <span>💾</span>
+        <span>Export</span>
+      </button>
+      <button class="btn-search-individual" id="btnSearchIndividually" type="button">Search Individually</button>
     </div>
-    <p class="drop-label">
-      <span>Click to browse</span> or drag &amp; drop<br/>
-      <span class="accepted">.csv &nbsp;·&nbsp; .xlsx</span>
-    </p>
+
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept=".csv,.xlsx" />
+      <div class="drop-upload-content">
+        <div class="drop-icon">
+          <svg viewBox="0 0 24 24" stroke-width="1.5">
+            <path d="M12 16V8m0 0-3 3m3-3 3 3M4 16v1a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-1"/>
+          </svg>
+        </div>
+        <p class="drop-label">
+          <span>Click to browse</span> or drag &amp; drop<br/>
+          <span class="accepted">.csv &nbsp;·&nbsp; .xlsx</span>
+        </p>
+      </div>
+
+      <div class="manual-search-panel" id="manualSearchPanel">
+        <div class="manual-input-wrap">
+          <textarea
+            id="manualSearchInput"
+            class="manual-search-input"
+            placeholder="Type any hardware or software name here.&#10;Use ; to separate multiple entries. Example: 'Windows 10; Adobe Photoshop; Intel Core i7'"
+            rows="4"
+          ></textarea>
+          <button id="btnManualSubmit" class="manual-submit-btn" type="button" aria-label="Submit manual search">
+            <span class="go-text">GO</span>
+            <span class="go-spinner"></span>
+          </button>
+          <span id="manualTimerDisplay" class="manual-timer-display"></span>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div class="error-msg" id="errorMsg"></div>
@@ -708,7 +1071,7 @@
     <!-- Hardware Table -->
     <div class="table-section" id="hwTableSection" style="display:none;">
       <div class="table-header">
-        <span class="table-title">// hardware assets</span>
+        <span class="table-title">// assets</span>
         <span class="table-meta" id="hwTableMeta"></span>
       </div>
       <div class="table-wrap">
@@ -722,7 +1085,7 @@
     <!-- Software Table -->
     <div class="table-section" id="swTableSection" style="display:none;">
       <div class="table-header">
-        <span class="table-title">// software assets</span>
+        <span class="table-title">// assets</span>
         <span class="table-meta" id="swTableMeta"></span>
       </div>
       <div class="table-wrap">
@@ -747,12 +1110,15 @@
     </div>
   </div>
 
-  <p class="footer">file sent to your local flask server &nbsp;·&nbsp; output previewed in browser</p>
 </div>
 
 <script>
   const dropZone    = document.getElementById('dropZone');
   const fileInput   = document.getElementById('fileInput');
+  const btnSearchIndividually = document.getElementById('btnSearchIndividually');
+  const btnExportIndividual = document.getElementById('btnExportIndividual');
+  const manualSearchInput = document.getElementById('manualSearchInput');
+  const btnManualSubmit = document.getElementById('btnManualSubmit');
   const infoCard    = document.getElementById('infoCard');
   const actions     = document.getElementById('actions');
   const btnProcess  = document.getElementById('btnProcess');
@@ -774,7 +1140,6 @@
   // Pipeline button elements
   const pipelineActions = document.getElementById('pipelineActions');
   const btnTriggerPipeline = document.getElementById('btnTriggerPipeline');
-
   // Hardware table elements
   const hwTableSection = document.getElementById('hwTableSection');
   const hwTableHead = document.getElementById('hwTableHead');
@@ -789,10 +1154,20 @@
   const apiKeyToast = document.getElementById('apiKeyToast');
 
   const ALLOWED = ['.csv', '.xlsx'];
+  
+  // Initialize export button as disabled (only enabled when results exist)
+  btnExportIndividual.disabled = true;
   let currentFile = null;
+  let manualMode = false;
+  let manualAutoRunActive = false;
+  let _manualFirstResultDone = false;
+  let currentManualEs = null;
+  let manualTimerInterval = null;
   let apiKeyToastTimer = null;
   const selectedRows = { hw: new Set(), sw: new Set() };
+  const editedNames = { hw: {}, sw: {} };
   const tableTotals = { hw: 0, sw: 0 };
+  const currentTableData = { hw: [], sw: [] };
 
   function formatSize(b) {
     if (b < 1024) return b + ' B';
@@ -843,10 +1218,202 @@
 
   function buildPipelineUrl() {
     const params = new URLSearchParams();
-    [...selectedRows.hw].sort((a, b) => a - b).forEach(index => params.append('hw', index));
-    [...selectedRows.sw].sort((a, b) => a - b).forEach(index => params.append('sw', index));
+
+    [...selectedRows.hw].sort((a, b) => a - b).forEach(index => {
+      params.append('hw', index);
+      const row = document.querySelector(`tr[data-row-id="row-hw-${index}"]`);
+      const name = row?.querySelector('.name-text')?.textContent?.trim();
+      if (name) params.append(`name_hw_${index}`, name);
+    });
+
+    [...selectedRows.sw].sort((a, b) => a - b).forEach(index => {
+      params.append('sw', index);
+      const row = document.querySelector(`tr[data-row-id="row-sw-${index}"]`);
+      const name = row?.querySelector('.name-text')?.textContent?.trim();
+      if (name) params.append(`name_sw_${index}`, name);
+    });
+
     const query = params.toString();
     return query ? `/run-pipeline?${query}` : '/run-pipeline';
+  }
+
+  function commitAllOpenNameEdits() {
+    document.querySelectorAll('.name-edit-input').forEach(input => {
+      input.blur();
+    });
+  }
+
+  function renderCurrentTables(showPipeline = true) {
+    const hasHW = currentTableData.hw.length > 0;
+    const hasSW = currentTableData.sw.length > 0;
+
+    if (hasHW) {
+      renderTable(currentTableData.hw, hwTableHead, hwTableBody, 'hardware');
+      hwTableSection.style.display = 'block';
+    } else {
+      hwTableSection.style.display = 'none';
+      tableTotals.hw = 0;
+      selectedRows.hw = new Set();
+    }
+
+    if (hasSW) {
+      renderTable(currentTableData.sw, swTableHead, swTableBody, 'software');
+      swTableSection.style.display = 'block';
+    } else {
+      swTableSection.style.display = 'none';
+      tableTotals.sw = 0;
+      selectedRows.sw = new Set();
+    }
+
+    if (hasHW || hasSW) {
+      tablesContainer.classList.add('visible');
+      if (showPipeline) {
+        pipelineActions.classList.add('visible');
+        btnExportIndividual.disabled = false;
+      } else {
+        pipelineActions.classList.remove('visible');
+        btnExportIndividual.disabled = true;
+      }
+      infoCard.classList.remove('visible');
+      resetBox.classList.add('visible');
+    } else {
+      pipelineActions.classList.remove('visible');
+      btnExportIndividual.disabled = true;
+    }
+  }
+
+  function routeManualResultToTable(itemDonePayload) {
+    if (!itemDonePayload || !itemDonePayload.result) return;
+
+    const result = itemDonePayload.result;
+    const itemType = itemDonePayload.type;   // 'sw' for all manual items
+    const itemIndex = itemDonePayload.index;
+    const declaredType = String(result['Hardware/Software'] || '').toLowerCase();
+    const isHardware = declaredType.includes('hardware');
+    const finalTypeStr = isHardware ? 'Hardware' : 'Software';
+
+    // Update the data record
+    if (currentTableData[itemType]?.[itemIndex] !== undefined) {
+      currentTableData[itemType][itemIndex]['Hardware/Software'] = finalTypeStr;
+    }
+
+    // Update type badge in-place — no full re-render
+    const tr = document.querySelector(`tr[data-row-id="row-${itemType}-${itemIndex}"]`);
+    if (tr && tr.cells[3]) {
+      tr.cells[3].innerHTML = `<span class="type-badge ${isHardware ? 'hw' : 'sw'}">${isHardware ? 'HW' : 'SW'}</span>`;
+    }
+  }
+
+  function toggleManualMode(nextState) {
+    manualMode = nextState;
+    dropZone.classList.toggle('manual-mode', manualMode);
+    btnSearchIndividually.classList.toggle('active', manualMode);
+    btnSearchIndividually.textContent = 'Search Individually';
+    if (manualMode) {
+      clearError();
+      setTimeout(() => manualSearchInput.focus(), 50);
+    }
+  }
+
+  function stopManualSpinner() {
+    if (manualTimerInterval) { clearInterval(manualTimerInterval); manualTimerInterval = null; }
+    btnManualSubmit.disabled = false;
+    btnManualSubmit.classList.remove('loading');
+  }
+
+  async function processManualInput() {
+    const raw = manualSearchInput.value.trim();
+    if (!raw) {
+      showError('Please enter a product name to search individually.');
+      manualSearchInput.focus();
+      return;
+    }
+
+    clearError();
+    processingSummary.classList.remove('visible');
+    btnManualSubmit.disabled = true;
+    btnManualSubmit.classList.add('loading');
+    _manualFirstResultDone = false;
+
+    const manualTimerDisplay = document.getElementById('manualTimerDisplay');
+    const startTime = performance.now();
+    manualTimerDisplay.textContent = '0.0s';
+    if (manualTimerInterval) clearInterval(manualTimerInterval);
+    manualTimerInterval = setInterval(() => {
+      manualTimerDisplay.textContent = ((performance.now() - startTime) / 1000).toFixed(1) + 's';
+    }, 100);
+
+    // Short abort for the staging fetch only (pipeline gets its own per-item watchdog)
+    const fetchAbort = new AbortController();
+    const fetchTimeoutId = setTimeout(() => fetchAbort.abort(), 10000);
+
+    try {
+      const response = await fetch('/upload-manual', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ query: raw }),
+        signal: fetchAbort.signal
+      });
+      clearTimeout(fetchTimeoutId);
+
+      const data = await response.json();
+      if (!response.ok || data.error) {
+        throw new Error(data.error || `Server error ${response.status}`);
+      }
+
+      // Combine all items into a single flat list in one table (all staged as sw in the pipeline)
+      const allItems = [...(data.sw_data || []), ...(data.hw_data || [])].map(item => ({
+        ...item,
+        'Hardware/Software': 'N.A'   // blank until AI result arrives
+      }));
+
+      currentTableData.hw = [];
+      currentTableData.sw = allItems;
+      editedNames.hw = {};
+      editedNames.sw = {};
+      renderCurrentTables(false);   // sets up selectedRows.sw, hides hw section
+
+      // UI transition — show single table immediately
+      currentFile = null;
+      infoCard.classList.remove('visible');
+      dropZone.classList.add('hidden');
+      toggleManualMode(false);
+      resetBoxFile.textContent = allItems.length === 1 ? (allItems[0]?.Name || '') : `${allItems.length} items`;
+      resetBox.classList.add('visible');
+      tablesContainer.classList.add('visible');
+
+      manualAutoRunActive = true;
+      startPipelineRun(true);
+    } catch (err) {
+      clearTimeout(fetchTimeoutId);
+      if (err.name === 'AbortError') {
+        showError('Request timed out. Please try again.');
+      } else {
+        showError('Processing failed: ' + err.message);
+        tablesContainer.classList.remove('visible');
+        processingSummary.classList.remove('visible');
+      }
+      manualAutoRunActive = false;
+      stopManualSpinner();
+    }
+  }
+
+  async function renderProcessedData(data, elapsedTime, showPipeline = true) {
+    const hwCount = data.hw_count || 0;
+    const swCount = data.sw_count || 0;
+
+    let summaryText = `File read in ${elapsedTime.toFixed(2)}s`;
+    if (hwCount > 0) summaryText += ` • Hardware: <span>${hwCount}</span>`;
+    if (swCount > 0) summaryText += ` • Software: <span>${swCount}</span>`;
+
+    processingSummary.innerHTML = summaryText;
+    processingSummary.classList.add('visible');
+
+    currentTableData.hw = data.hw_data ? [...data.hw_data] : [];
+    currentTableData.sw = data.sw_data ? [...data.sw_data] : [];
+    editedNames.hw = {};
+    editedNames.sw = {};
+    renderCurrentTables(showPipeline);
   }
 
   function setFileInfo(file) {
@@ -944,20 +1511,44 @@
       tdChevron.style.width = '30px';
       tr.appendChild(tdChevron);
       
-      // Name cell
+      // Name cell with inline edit
       const tdName = document.createElement('td');
       tdName.className = 'name-cell';
-      tdName.textContent = row.Name || '';
       tdName.title = row.Name || '';
       tdName.style.fontWeight = '500';
+
+      const nameWrapper = document.createElement('div');
+      nameWrapper.className = 'name-cell-wrapper';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.className = 'name-text';
+      nameSpan.textContent = row.Name || '';
+
+      const editBtn = document.createElement('button');
+      editBtn.className = 'edit-name-btn';
+      editBtn.title = 'Edit name';
+      editBtn.innerHTML = '<i class="ph ph-pencil-simple" style="font-size:0.85rem;"></i>';
+      editBtn.addEventListener('click', event => {
+        event.stopPropagation();
+        startEditName(nameSpan, editBtn, tdName, typeLabel, i);
+      });
+
+      nameWrapper.appendChild(nameSpan);
+      nameWrapper.appendChild(editBtn);
+      tdName.appendChild(nameWrapper);
       tr.appendChild(tdName);
       
       // Type badge cell
       const tdType = document.createElement('td');
       tdType.className = 'type-badge-cell';
-      const typeStr = row['Hardware/Software'] || type;
+      const typeStr = row['Hardware/Software'] || '';
+      const isBlank = !typeStr || typeStr === 'N.A';
       const isSW = typeStr.toLowerCase().includes('software');
-      tdType.innerHTML = `<span class="type-badge ${isSW ? 'sw' : 'hw'}">${isSW ? 'SW' : 'HW'}</span>`;
+      if (isBlank) {
+        tdType.innerHTML = `<span class="type-badge" style="opacity:0.3; border-color:rgba(128,128,128,0.3); color:var(--muted);">—</span>`;
+      } else {
+        tdType.innerHTML = `<span class="type-badge ${isSW ? 'sw' : 'hw'}">${isSW ? 'SW' : 'HW'}</span>`;
+      }
       tr.appendChild(tdType);
       
       // EOS Date cell
@@ -1069,35 +1660,26 @@
             
             <div class="expand-section">
               <div class="expand-section-title">Sources</div>
-              ${sourceUrls.length > 0 ? `
-                <div class="sources-list">
-                  ${sourceUrls.map(url => `<a href="${url}" target="_blank" class="source-link">🔗 ${new URL(url).hostname}</a>`).join('')}
-                </div>
-              ` : '<div class="expand-value" style="color: #666;">No sources available.</div>'}
+              ${sourceUrls.length > 0
+                ? `<div class="sources-list">${sourceUrls.map(u => {
+                    let host = u;
+                    try { host = new URL(u).hostname; } catch(_) {}
+                    return `<a href="${u}" target="_blank" class="source-link">🔗 ${host}</a>`;
+                  }).join('')}</div>`
+                : '<div class="expand-value" style="color: #666;">No sources available.</div>'
+              }
             </div>
           </div>
           
           <div>
             <div class="expand-section">
               <div class="expand-section-title">Lifecycle Milestones</div>
-              ${supportTiers.length > 0 ? `
-                <table class="tiers-table">
-                  <thead>
-                    <tr>
-                      <th>Tier</th>
-                      <th>End Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    ${supportTiers.map(t => `
-                      <tr>
-                        <td>${t.Tier || ''}</td>
-                        <td>${t.EndDate || ''}</td>
-                      </tr>
-                    `).join('')}
-                  </tbody>
-                </table>
-              ` : '<div class="expand-value" style="color: #666;">No milestones available.</div>'}
+              ${supportTiers.length > 0
+                ? `<table class="tiers-table"><thead><tr><th>Tier</th><th>End Date</th></tr></thead><tbody>
+                  ${supportTiers.map(t => `<tr><td>${t.Tier||''}</td><td>${t.EndDate||''}</td></tr>`).join('')}
+                 </tbody></table>`
+                : '<div class="expand-value" style="color:#666;">No milestones available.</div>'
+              }
             </div>
           </div>
         </div>
@@ -1110,6 +1692,42 @@
     syncSelectAllState(typeLabel);
 
     return true;
+  }
+
+  function startEditName(nameSpan, editBtn, tdCell, typeKey, rowIndex) {
+    const original = nameSpan.textContent;
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'name-edit-input';
+    input.value = original;
+
+    nameSpan.style.display = 'none';
+    editBtn.style.display = 'none';
+    tdCell.querySelector('.name-cell-wrapper').appendChild(input);
+    input.focus();
+    input.select();
+
+    let committed = false;
+    function commit() {
+      if (committed) return;
+      committed = true;
+      const newName = input.value.trim() || original;
+      nameSpan.textContent = newName;
+      editedNames[typeKey][rowIndex] = newName;
+      tdCell.title = newName;
+      const checkbox = tdCell.closest('tr')?.querySelector('.row-select');
+      if (checkbox) checkbox.title = `Select ${newName}`;
+      nameSpan.style.display = '';
+      editBtn.style.display = '';
+      input.remove();
+    }
+
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter')  { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { input.value = original; commit(); }
+    });
+    input.addEventListener('blur', commit);
+    input.addEventListener('click', e => e.stopPropagation());
   }
 
   function toggleRow(rowElement, tableBody, rowData, type, index) {
@@ -1164,49 +1782,8 @@
         return;
       }
 
-      const elapsedTime = (performance.now() - startTime) / 1000;
-      const hwCount = data.hw_count || 0;
-      const swCount = data.sw_count || 0;
-
-      // Update summary
-      let summaryText = `File read in ${elapsedTime.toFixed(2)}s`;
-      if (hwCount > 0) summaryText += ` • Hardware: <span>${hwCount}</span>`;
-      if (swCount > 0) summaryText += ` • Software: <span>${swCount}</span>`;
-      
-      processingSummary.innerHTML = summaryText;
-      processingSummary.classList.add('visible');
-
-      // Show only tables with data
-      const hasHW = data.hw_data && data.hw_data.length > 0;
-      const hasSW = data.sw_data && data.sw_data.length > 0;
-
-      if (hasHW) {
-        renderTable(data.hw_data, hwTableHead, hwTableBody, 'hardware');
-        hwTableSection.style.display = 'block';
-      } else {
-        hwTableSection.style.display = 'none';
-        tableTotals.hw = 0;
-        selectedRows.hw = new Set();
-      }
-
-      if (hasSW) {
-        renderTable(data.sw_data, swTableHead, swTableBody, 'software');
-        swTableSection.style.display = 'block';
-      } else {
-        swTableSection.style.display = 'none';
-        tableTotals.sw = 0;
-        selectedRows.sw = new Set();
-      }
-
-      if (hasHW || hasSW) {
-        tablesContainer.classList.add('visible');
-        pipelineActions.classList.add('visible');
-        
-        // Hide info card and show reset box instead
-        infoCard.classList.remove('visible');
-        resetBoxFile.textContent = currentFile.name;
-        resetBox.classList.add('visible');
-      }
+      resetBoxFile.textContent = currentFile.name;
+      await renderProcessedData(data, (performance.now() - startTime) / 1000);
 
     } catch (err) {
       showError('Processing failed: ' + err.message);
@@ -1217,10 +1794,13 @@
 
   function reset() {
     currentFile = null;
+    manualSearchInput.value = '';
+    toggleManualMode(false);
     fileInput.value = '';
     infoCard.classList.remove('visible');
     tablesContainer.classList.remove('visible');
     pipelineActions.classList.remove('visible');
+    btnExportIndividual.disabled = true;
     processingSummary.classList.remove('visible');
     resetBox.classList.remove('visible');
     dropZone.classList.remove('hidden');
@@ -1234,15 +1814,30 @@
     hwTableBody.innerHTML = '';
     swTableHead.innerHTML = '';
     swTableBody.innerHTML = '';
+    currentTableData.hw = [];
+    currentTableData.sw = [];
     tableTotals.hw = 0;
     tableTotals.sw = 0;
     selectedRows.hw = new Set();
     selectedRows.sw = new Set();
+    editedNames.hw = {};
+    editedNames.sw = {};
+    manualAutoRunActive = false;
+    _manualFirstResultDone = false;
     // Reset pipeline button and timer
     stopTimer();
     pipelineTimerValue.textContent = '00:00.0';
     btnTriggerPipeline.disabled = false;
     btnTriggerPipeline.querySelector('.pipeline-text').textContent = 'Trigger AI Intelligence Pipeline';
+  }
+
+  function startFreshIndividualSearch() {
+    reset();
+    manualSearchInput.value = '';
+    toggleManualMode(true);
+    pipelineActions.classList.remove('visible');
+    btnExportIndividual.disabled = true;
+    setTimeout(() => manualSearchInput.focus(), 50);
   }
 
   // Load test data
@@ -1295,22 +1890,18 @@
       "error": null
     };
 
-    // Render test data
-    if (testData.hw_data && testData.hw_data.length > 0) {
-      renderTable(testData.hw_data, hwTableHead, hwTableBody, 'hardware');
-      hwTableSection.style.display = 'block';
-    }
-
-    if (testData.sw_data && testData.sw_data.length > 0) {
-      renderTable(testData.sw_data, swTableHead, swTableBody, 'software');
-      swTableSection.style.display = 'block';
-    }
+    currentTableData.hw = testData.hw_data ? [...testData.hw_data] : [];
+    currentTableData.sw = testData.sw_data ? [...testData.sw_data] : [];
+    editedNames.hw = {};
+    editedNames.sw = {};
+    renderCurrentTables();
 
     // Show results
     processingSummary.innerHTML = `File read in ${testData.elapsed_time.toFixed(2)}s • Hardware: <span>${testData.hw_count}</span> • Software: <span>${testData.sw_count}</span>`;
     processingSummary.classList.add('visible');
     tablesContainer.classList.add('visible');
     pipelineActions.classList.add('visible');
+    btnExportIndividual.disabled = false;
     dropZone.classList.add('hidden');
     infoCard.classList.remove('visible');
     resetBoxFile.textContent = 'test-data.xlsx';
@@ -1323,20 +1914,21 @@
     if (savedTheme === 'light') {
       document.body.classList.add('light-mode');
       themeIcon.textContent = '☀️';
-      themeLabel.textContent = 'dark';
+      themeLabel.textContent = 'light';
     }
   });
 
   // Theme toggle handler
   themeToggle.addEventListener('click', () => {
+    if (themeToggle.classList.contains('disabled')) return;
     const isLightMode = document.body.classList.toggle('light-mode');
     if (isLightMode) {
       themeIcon.textContent = '☀️';
-      themeLabel.textContent = 'dark';
+      themeLabel.textContent = 'light';
       localStorage.setItem('theme', 'light');
     } else {
       themeIcon.textContent = '🌙';
-      themeLabel.textContent = 'light';
+      themeLabel.textContent = 'dark';
       localStorage.setItem('theme', 'dark');
     }
   });
@@ -1344,9 +1936,73 @@
   fileInput.addEventListener('change', e => {
     if (e.target.files.length) { currentFile = e.target.files[0]; setFileInfo(currentFile); }
   });
-  dropZone.addEventListener('dragover',  e => { e.preventDefault(); dropZone.classList.add('dragover'); });
-  dropZone.addEventListener('dragleave', ()  => dropZone.classList.remove('dragover'));
+  btnSearchIndividually.addEventListener('click', () => {
+    if (manualMode) {
+      reset();
+    } else {
+      startFreshIndividualSearch();
+    }
+  });
+
+  btnExportIndividual.addEventListener('click', async () => {
+    try {
+      btnExportIndividual.disabled = true;
+      const textSpan = btnExportIndividual.querySelector('span:last-child');
+      const originalText = textSpan.textContent;
+      textSpan.textContent = 'Exporting...';
+
+      const response = await fetch('/export-csv');
+      if (!response.ok) {
+        const error = await response.json();
+        showError(error.error || 'Failed to export CSV');
+        return;
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let filename = 'eos_results.csv';
+      if (contentDisposition) {
+        const match = contentDisposition.match(/filename[^;=\n]*=([^;\n]*)/);
+        if (match[1]) filename = match[1].trim().replace(/^"(.+)"$/, '$1');
+      }
+      
+      link.setAttribute('download', filename);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+
+      clearError();
+    } catch (error) {
+      showError('Error exporting CSV: ' + error.message);
+    } finally {
+      btnExportIndividual.disabled = false;
+      btnExportIndividual.querySelector('span:last-child').textContent = 'Export';
+    }
+  });
+
+  btnManualSubmit.addEventListener('click', processManualInput);
+  manualSearchInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      processManualInput();
+    }
+  });
+  dropZone.addEventListener('dragover',  e => {
+    if (manualMode) return;
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+  dropZone.addEventListener('dragleave', ()  => {
+    if (manualMode) return;
+    dropZone.classList.remove('dragover');
+  });
   dropZone.addEventListener('drop', e => {
+    if (manualMode) return;
     e.preventDefault(); dropZone.classList.remove('dragover');
     if (e.dataTransfer.files.length) { currentFile = e.dataTransfer.files[0]; setFileInfo(currentFile); }
   });
@@ -1358,6 +2014,92 @@
   const pipelineTimerValue = document.getElementById('pipelineTimerValue');
   let _timerStart = null;
   let _timerRAF   = null;
+
+  async function refreshItemFromAPI(type, index, itemName) {
+    const icon = document.getElementById(`icon-${type}-${index}`);
+    if (!icon || !itemName) return;
+    
+    // Show loading state with spinning animation
+    const originalChar = icon.textContent;
+    icon.textContent = '↻'; // Spinning refresh symbol
+    icon.style.color = ''; // Let .refreshing CSS class control the color
+    icon.classList.add('refreshing'); // Add spinning animation (green via CSS)
+    icon.disabled = true;
+    
+    try {
+      // Call the refresh endpoint
+      const response = await fetch('/refresh-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          item_name: itemName,
+          item_type: type
+        })
+      });
+      
+      const data = await response.json();
+      
+      if (!response.ok || data.error) {
+        throw new Error(data.error || `Refresh failed`);
+      }
+      
+      // Remove spinning animation before updating
+      icon.classList.remove('refreshing');
+      
+      // Update the display with fresh result (will show ✓ green)
+      rowSetDone(type, index, data.result, false, 'api');
+      
+      // Update expanded row if visible
+      const expandedRow = document.querySelector(`#expand-${type}-${index}`);
+      if (expandedRow && expandedRow.style.display !== 'none') {
+        const expandTd = expandedRow.querySelector('td');
+        if (expandTd && data.result) {
+          // Trigger a re-render of expanded content by simulating rowSetDone
+          const summary     = data.result.Summary || '';
+          const support     = data.result['Support Model'] || 'N/A';
+          const urls        = data.result['Source URLs'] || [];
+          const tiers       = data.result['Support Tiers'] || [];
+
+          expandTd.querySelector('.expand-content-grid').innerHTML = `
+            <div>
+              <div class="expand-section">
+                <div class="expand-section-title">Executive Summary</div>
+                <div class="expand-value">${summary || 'No summary available.'}</div>
+              </div>
+              <div class="expand-section">
+                <div class="expand-section-title">Support Model</div>
+                <div class="support-model-box">
+                  <div class="expand-value">${support}</div>
+                </div>
+              </div>
+              <div class="expand-section">
+                <div class="expand-section-title">Sources</div>
+                ${urls.length > 0
+                  ? `<div class="sources-list">${urls.map(u => {
+                      let host = u;
+                      try { host = new URL(u).hostname; } catch(_) {}
+                      return `<a href="${u}" target="_blank" class="source-link">🔗 ${host}</a>`;
+                    }).join('')}</div>`
+                  : '<div class="expand-value" style="color: #666;">No sources available.</div>'
+                }
+              </div>
+            </div>`;
+        }
+      }
+      
+      // Success - icon already updated by rowSetDone
+      
+    } catch (err) {
+      console.error('Refresh error:', err);
+      showError('Failed to refresh: ' + err.message);
+      
+      // Restore icon to original state
+      icon.classList.remove('refreshing');
+      icon.textContent = originalChar;
+      icon.style.color = '#ffffff'; // Back to white for cached
+      icon.disabled = false;
+    }
+  }
 
   function startTimer() {
     _timerStart = performance.now();
@@ -1388,15 +2130,49 @@
     if (icon)    { icon.textContent = ''; icon.classList.remove('visible'); }
   }
 
-  function rowSetDone(type, index, result, fromCache = false) {
+  function rowSetDone(type, index, result, fromCache = false, cachedFrom = 'api') {
     const spinner = document.getElementById(`spinner-${type}-${index}`);
     const icon    = document.getElementById(`icon-${type}-${index}`);
     if (spinner) spinner.classList.remove('active');
     if (icon) {
-      icon.textContent = fromCache ? '◎' : '✓';
-      icon.style.color = fromCache ? '#4ab8f0' : '#2ecc71';
-      icon.title = fromCache ? 'Loaded from cache' : 'Processed by AI';
+      // Set icon and color based on cache source
+      let iconChar = '✓';
+      let iconColor = '#2ecc71'; // Green for fresh API
+      let iconTitle = 'Processed by AI (fresh)';
+      
+      if (cachedFrom === 'database') {
+        iconChar = '◈'; // Cached from database
+        iconColor = '#89b4fa'; // Light blue
+        iconTitle = 'Cached — click to refresh from API';
+      } else if (cachedFrom === 'memory') {
+        iconChar = '◈'; // Cached from memory
+        iconColor = '#cba6f7'; // Purple
+        iconTitle = 'Memory cached — click to refresh from API';
+      }
+      
+      icon.textContent = iconChar;
+      icon.style.color = iconColor;
+      icon.title = iconTitle;
       icon.classList.add('visible');
+      icon.setAttribute('data-cache-source', cachedFrom);
+      
+      // Add cached class and interaction handlers
+      if (cachedFrom !== 'api') {
+        icon.classList.add('cached');
+        icon.setAttribute('data-type', type);
+        icon.setAttribute('data-index', index);
+        icon.setAttribute('data-item-name', result?.Name || '');
+        
+        // Use property assignment (not addEventListener) to prevent stacking on re-runs
+        icon.onmouseenter = () => { if (!icon.classList.contains('refreshing')) { icon.textContent = iconChar + ' ↻'; } };
+        icon.onmouseleave = () => { if (!icon.classList.contains('refreshing')) icon.textContent = iconChar; };
+        icon.onclick     = (e) => { e.stopPropagation(); refreshItemFromAPI(type, index, result?.Name || ''); };
+      } else {
+        // Clear any stale handlers from a previous cached state
+        icon.onmouseenter = null;
+        icon.onmouseleave = null;
+        icon.onclick = null;
+      }
     }
 
     // Patch the visible row cells with fresh data from the AI result
@@ -1451,7 +2227,7 @@
                   try { host = new URL(u).hostname; } catch(_) {}
                   return `<a href="${u}" target="_blank" class="source-link">🔗 ${host}</a>`;
                 }).join('')}</div>`
-              : '<div class="expand-value" style="color:#666;">No sources available.</div>'
+              : '<div class="expand-value" style="color: #666;">No sources available.</div>'
             }
           </div>
         </div>
@@ -1478,9 +2254,12 @@
   }
 
   // ── Pipeline trigger ──────────────────────────────────────────────────────
-  btnTriggerPipeline.addEventListener('click', () => {
+  function startPipelineRun(autoFromManual = false) {
+    commitAllOpenNameEdits();
+
     if (selectedRows.hw.size === 0 && selectedRows.sw.size === 0) {
       showError('Please select at least one item before running the AI pipeline.');
+      manualAutoRunActive = false;
       return;
     }
 
@@ -1492,23 +2271,46 @@
     let liveCount = 0;
     let cachedCount = 0;
 
+    // Per-item watchdog: 60s reset on each item-start / item-done
+    let watchdog = null;
+    const WATCHDOG_MS = 60000;
+    function resetWatchdog() {
+      if (!autoFromManual) return;
+      if (watchdog) clearTimeout(watchdog);
+      watchdog = setTimeout(() => {
+        es.close();
+        currentManualEs = null;
+        stopManualSpinner();
+        manualAutoRunActive = false;
+        showError('Timeout Error: Please try again later.');
+      }, WATCHDOG_MS);
+    }
+    function clearWatchdog() {
+      if (watchdog) { clearTimeout(watchdog); watchdog = null; }
+    }
+
     const es = new EventSource(buildPipelineUrl());
+    if (autoFromManual) { currentManualEs = es; resetWatchdog(); }
 
     es.addEventListener('item-start', e => {
       const d = JSON.parse(e.data);
       rowSetSpinning(d.type, d.index);
+      resetWatchdog();
     });
 
     es.addEventListener('item-done', e => {
       const d = JSON.parse(e.data);
       if (d.cached) {
-        // Instant restore from cache — no spinner needed
         cachedCount++;
-        rowSetDone(d.type, d.index, d.result, true);
+        rowSetDone(d.type, d.index, d.result, true, d.cached_from);
       } else {
         liveCount++;
-        rowSetDone(d.type, d.index, d.result, false);
+        rowSetDone(d.type, d.index, d.result, false, d.cached_from);
       }
+      if (manualAutoRunActive || autoFromManual) {
+        routeManualResultToTable(d);
+      }
+      resetWatchdog();
     });
 
     es.addEventListener('item-error', e => {
@@ -1522,31 +2324,45 @@
       const d = JSON.parse(e.data);
       stopTimer();
       es.close();
+      clearWatchdog();
       btnTriggerPipeline.disabled = false;
+      btnExportIndividual.disabled = false;
       const parts = [`${d.processed}/${d.total} items`];
       if (cachedCount > 0) parts.push(`${cachedCount} from cache`);
       if (liveCount > 0)   parts.push(`${liveCount} via API`);
       btnTriggerPipeline.querySelector('.pipeline-text').textContent = `✓ Complete — ${parts.join(' · ')}`;
       pipelineTimerValue.textContent += ' ✓';
+      if (autoFromManual) { currentManualEs = null; stopManualSpinner(); }
+      manualAutoRunActive = false;
     });
 
     es.addEventListener('pipeline-error', e => {
       const d = JSON.parse(e.data);
       stopTimer();
       es.close();
+      clearWatchdog();
       showError('Pipeline error: ' + d.error);
       btnTriggerPipeline.disabled = false;
       btnTriggerPipeline.querySelector('.pipeline-text').textContent = 'Trigger AI Intelligence Pipeline';
+      if (autoFromManual) { currentManualEs = null; stopManualSpinner(); }
+      manualAutoRunActive = false;
     });
 
     es.onerror = () => {
       stopTimer();
       es.close();
+      clearWatchdog();
       showError('Lost connection to pipeline. Please try again.');
       btnTriggerPipeline.disabled = false;
       btnTriggerPipeline.querySelector('.pipeline-text').textContent = 'Trigger AI Intelligence Pipeline';
+      if (autoFromManual) { currentManualEs = null; stopManualSpinner(); }
+      manualAutoRunActive = false;
     };
-  });
+  }
+
+  btnTriggerPipeline.addEventListener('click', () => startPipelineRun(false));
+
+
 </script>
 </body>
 </html>
