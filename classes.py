@@ -35,7 +35,7 @@ class Helper:
 
     """
     Preprocesses the Excel or CSV file to extract hardware and software lists."""
-    def preprocess(self, filename, sheet='Sheet1'):
+    def preprocess(self, filename, sheet='Asset List'):
         time_start = time.time()
         print(f'Starting Preprocessing for: {filename}...')
         
@@ -210,3 +210,11 @@ class Processing:
             print(f"Error exporting to CSV: {e}")
             return None
         
+class chatbot():
+    def __init__(self):
+        pass  # Initialize any required variables here
+
+    def persistent_chat(self, user_input, chat_history):
+        
+        # call the LLM with the user input and chat history
+        response = self.call_llm(user_input, chat_history)

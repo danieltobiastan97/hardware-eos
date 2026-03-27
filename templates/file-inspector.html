@@ -1248,7 +1248,7 @@
     const hasSW = currentTableData.sw.length > 0;
 
     if (hasHW) {
-      renderTable(currentTableData.hw, hwTableHead, hwTableBody, 'hardware');
+      renderTable(currentTableData.hw, hwTableHead, hwTableBody, 'hw');
       hwTableSection.style.display = 'block';
     } else {
       hwTableSection.style.display = 'none';
@@ -1257,7 +1257,7 @@
     }
 
     if (hasSW) {
-      renderTable(currentTableData.sw, swTableHead, swTableBody, 'software');
+      renderTable(currentTableData.sw, swTableHead, swTableBody, 'sw');
       swTableSection.style.display = 'block';
     } else {
       swTableSection.style.display = 'none';

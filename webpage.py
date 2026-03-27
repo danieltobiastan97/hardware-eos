@@ -13,65 +13,26 @@ from io import BytesIO
 from prompt import keys_and_prompt_setup, client_setup, process_line
 from classes import Helper, Processing
 
-# Import database
-from models import init_database, ProductEOSRepo, parse_date
+# Import database models
+from models import init_database, ProductEOSRepo
 
 app = Flask(__name__)
 app.secret_key = os.getenv("APP_SECRET_KEY", "change-this-secret-key")
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Initialize database for cache
-try:
-    db_engine, db_session = init_database("sqlite:///asset_cache.db")
-    db_repo = ProductEOSRepo(db_session)
-    DATABASE_ENABLED = True
-except Exception as e:
-    print(f"Warning: Database initialization failed: {e}")
-    DATABASE_ENABLED = False
-    db_repo = None
-
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = os.getenv("APP_ADMIN_PASSWORD", "changeme")
 ADMIN_PASSWORD_HASH = os.getenv("APP_ADMIN_PASSWORD_HASH")
+
+# Initialize database connection (persistent)
+db_engine, db_session = init_database('sqlite:////app/data/asset_cache.db')
+product_repo = ProductEOSRepo(db_session)
 
 # Store the last uploaded lists and AI results cache
 # Results are keyed by item name so re-running skips already-processed items
 _last_upload = {"hw_list": [], "sw_list": []}
 _results_cache = {}   # name -> result dict
-
-# Cache status tracking
-def check_cache(item_name):
-    """Check if item exists in database cache."""
-    if not DATABASE_ENABLED or not db_repo:
-        return None
-    try:
-        return db_repo.get_product_by_name(item_name)
-    except Exception:
-        return None
-
-def save_to_cache(item_name, item_type, result_data, processing_time=0.0):
-    """Save processing result to database cache."""
-    if not DATABASE_ENABLED or not db_repo:
-        return False
-    try:
-        # For now, save to asset_cache table for general items
-        # In future, could save ProductEOS for product/software tracking
-        from models import assetCache
-        cache_entry = assetCache(
-            item_name=item_name,
-            item_type=item_type,
-            result=json.dumps(result_data) if isinstance(result_data, dict) else result_data,
-            status='success',
-            processing_time=processing_time
-        )
-        db_session.add(cache_entry)
-        db_session.commit()
-        return True
-    except Exception as e:
-        print(f"Cache save error: {e}")
-        return False
-
 
 
 def _is_authenticated():
@@ -235,7 +196,7 @@ def upload():
     try:
         # Process using the preprocess function from Helper class
         processor = Helper()
-        hw_list, sw_list = processor.preprocess(file_path, sheet='Sheet1')
+        hw_list, sw_list = processor.preprocess(file_path, sheet='Asset List')
         
         elapsed_time = time.time() - start_time
         
@@ -304,11 +265,12 @@ def upload_manual():
 def run_pipeline():
     """
     Server-Sent Events endpoint. Streams pipeline progress back to the browser.
+    Checks database first for cached results, then calls API for new items.
     Events emitted:
       - item-start   : {"name": str, "type": "hw"|"sw", "index": int}
-      - item-done    : {"name": str, "type": "hw"|"sw", "index": int, "result": {...}}
+      - item-done    : {"name": str, "type": "hw"|"sw", "index": int, "result": {...}, "cached_from": "database"|"api"|"memory"}
       - item-error   : {"name": str, "type": "hw"|"sw", "index": int, "error": str}
-      - pipeline-done: {"hw_count": int, "sw_count": int, "elapsed": float}
+      - pipeline-done: {"processed": int, "total": int, "elapsed": float}
     """
     def generate():
         def sse(event, data):
@@ -357,49 +319,37 @@ def run_pipeline():
             yield sse("pipeline-error", {"error": "No valid selected items were found for processing."})
             return
 
-        # ── Resolve names; yield cache hits immediately; queue misses ──────
+        # ── Check cache sources in priority order: database → memory → API ──
         to_process = []
         for item, item_type, index in all_items:
             original_name = item if isinstance(item, str) else item.get("Name", str(item))
             name = (hw_name_overrides if item_type == "hw" else sw_name_overrides).get(index, original_name)
             cache_key = f"{item_type}:{name.strip().lower()}"
 
-            # Check in-memory cache first
-            if cache_key in _results_cache:
+            # 1. Check database first (persistent cache)
+            db_product = db_session.query(__import__('models').ProductEOS).filter(
+                __import__('sqlalchemy').func.lower(__import__('models').ProductEOS.name) == name.strip().lower()
+            ).first()
+            
+            if db_product:
+                # Found in database - return cached result
+                result = db_product.to_dict()
+                yield sse("item-done", {
+                    "name": name, "type": item_type, "index": index,
+                    "result": result, "cached": True, "cached_from": "database"
+                })
+                processed += 1
+            # 2. Check in-memory cache (session cache)
+            elif cache_key in _results_cache:
                 yield sse("item-done", {
                     "name": name, "type": item_type, "index": index,
                     "result": _results_cache[cache_key], "cached": True, "cached_from": "memory"
                 })
                 processed += 1
+            # 3. Queue for API processing
             else:
-                # Check database cache
-                db_cached = None
-                if DATABASE_ENABLED and db_repo:
-                    try:
-                        from models import assetCache
-                        db_session.expire_all()  # Ensure fresh data from DB
-                        db_cached = db_session.query(assetCache).filter_by(item_name=name).first()
-                        print(f"[CACHE] DB lookup for '{name}': {'HIT' if db_cached else 'MISS'}")
-                    except Exception as db_err:
-                        print(f"[CACHE] DB lookup error for '{name}': {db_err}")
-                        db_cached = None
-                
-                if db_cached:
-                    try:
-                        cached_result = json.loads(db_cached.result) if isinstance(db_cached.result, str) else db_cached.result
-                        _results_cache[cache_key] = cached_result  # Populate in-memory too
-                        yield sse("item-done", {
-                            "name": name, "type": item_type, "index": index,
-                            "result": cached_result, "cached": True, "cached_from": "database"
-                        })
-                        processed += 1
-                    except Exception:
-                        # If cache is corrupted, reprocess
-                        yield sse("item-start", {"name": name, "type": item_type, "index": index})
-                        to_process.append((name, item_type, index, cache_key))
-                else:
-                    yield sse("item-start", {"name": name, "type": item_type, "index": index})
-                    to_process.append((name, item_type, index, cache_key))
+                yield sse("item-start", {"name": name, "type": item_type, "index": index})
+                to_process.append((name, item_type, index, cache_key))
 
         # ── Process non-cached items concurrently ──────────────────────────
         if to_process:
@@ -417,27 +367,39 @@ def run_pipeline():
                             yield sse("item-error", {"name": name, "type": item_type, "index": index, "error": "No result returned"})
                         else:
                             processed += 1
+                            
+                            # Store in both caches (memory and database)
                             _results_cache[cache_key] = result
                             
-                            # Save to database cache
-                            if DATABASE_ENABLED and db_repo:
-                                try:
-                                    from models import assetCache
-                                    cache_entry = assetCache(
-                                        item_name=name,
-                                        item_type=item_type,
-                                        result=json.dumps(result) if isinstance(result, dict) else result,
-                                        status='success',
-                                        processing_time=0.0
-                                    )
-                                    db_session.add(cache_entry)
-                                    db_session.commit()
-                                except Exception as e:
-                                    print(f"Database cache save error: {e}")
+                            # Store in database for persistence
+                            try:
+                                product_repo.add_product(
+                                    name=name,
+                                    summary=result.get('Summary', ''),
+                                    hardware_software=result.get('Hardware/Software', item_type),
+                                    support_model=result.get('Support Model', 'Unknown'),
+                                    eos_date=result.get('EOS Date', '2099-12-31'),
+                                    source_urls=result.get('Source URLs', []),
+                                    confidence=result.get('Confidence', 0.0)
+                                )
+                                # Store support tiers if present
+                                db_product = db_session.query(__import__('models').ProductEOS).filter(
+                                    __import__('sqlalchemy').func.lower(__import__('models').ProductEOS.name) == name.strip().lower()
+                                ).first()
+                                if db_product and result.get('Support Tiers'):
+                                    for tier in result['Support Tiers']:
+                                        product_repo.add_support_tier(
+                                            product_id=db_product.id,
+                                            tier_name=tier.get('Tier', 'Unknown'),
+                                            end_date=tier.get('EndDate', '2099-12-31')
+                                        )
+                            except Exception as db_err:
+                                # Log but don't fail the pipeline
+                                print(f"Warning: Failed to store {name} in database: {db_err}")
                             
                             yield sse("item-done", {
                                 "name": name, "type": item_type, "index": index, 
-                                "result": result, "cached": False, "cached_from": "api"
+                                "result": result, "cached_from": "api"
                             })
                     except Exception as e:
                         yield sse("item-error", {"name": name, "type": item_type, "index": index, "error": str(e)})
@@ -459,6 +421,112 @@ def run_pipeline():
     )
 
 
+@app.route('/refresh-item', methods=['POST'])
+@login_required
+def refresh_item():
+    """
+    Refresh a single item from the API, updating both in-memory and database caches.
+    Called when user hovers over a cached icon and clicks refresh button.
+    
+    Expected JSON payload:
+      {
+        "item_name": string (the item name to refresh),
+        "item_type": "hw" | "sw" (the type of item)
+      }
+    
+    Returns JSON with the fresh result.
+    """
+    try:
+        data = request.get_json(silent=True) or {}
+        item_name = str(data.get('item_name', '')).strip()
+        item_type = str(data.get('item_type', '')).strip()
+        
+        if not item_name or item_type not in ('hw', 'sw'):
+            return jsonify({"error": "Missing or invalid item_name or item_type"}), 400
+        
+        # Set up the pipeline
+        try:
+            keys, instruct = keys_and_prompt_setup()
+            client, config = client_setup(keys)
+        except Exception as e:
+            return jsonify({"error": f"Setup failed: {str(e)}"}), 500
+        
+        # Process the item fresh from API (bypass cache)
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                result = loop.run_until_complete(process_line(item_name, client, config, instruct))
+            finally:
+                loop.close()
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+        
+        if result is None:
+            return jsonify({"error": "No result returned from API"}), 500
+        
+        # Update both caches with the fresh result
+        cache_key = f"{item_type}:{item_name.strip().lower()}"
+        _results_cache[cache_key] = result
+        
+        # Update or insert in database
+        try:
+            from sqlalchemy import func as sql_func
+            from models import ProductEOS
+            
+            # Check if product already exists
+            existing_product = db_session.query(ProductEOS).filter(
+                sql_func.lower(ProductEOS.name) == item_name.strip().lower()
+            ).first()
+            
+            if existing_product:
+                # Update existing product
+                existing_product.summary = result.get('Summary', '')
+                existing_product.hardware_software = result.get('Hardware/Software', item_type)
+                existing_product.support_model = result.get('Support Model', 'Unknown')
+                existing_product.eos_date = result.get('EOS Date', '2099-12-31')
+                existing_product.source_urls = result.get('Source URLs', [])
+                existing_product.confidence = result.get('Confidence', 0.0)
+                # Clear old support tiers
+                for tier in existing_product.support_tiers:
+                    db_session.delete(tier)
+                db_session.commit()
+            else:
+                # Create new product
+                product_repo.add_product(
+                    name=item_name,
+                    summary=result.get('Summary', ''),
+                    hardware_software=result.get('Hardware/Software', item_type),
+                    support_model=result.get('Support Model', 'Unknown'),
+                    eos_date=result.get('EOS Date', '2099-12-31'),
+                    source_urls=result.get('Source URLs', []),
+                    confidence=result.get('Confidence', 0.0)
+                )
+                existing_product = db_session.query(ProductEOS).filter(
+                    sql_func.lower(ProductEOS.name) == item_name.strip().lower()
+                ).first()
+            
+            # Add support tiers
+            if existing_product and result.get('Support Tiers'):
+                for tier in result['Support Tiers']:
+                    product_repo.add_support_tier(
+                        product_id=existing_product.id,
+                        tier_name=tier.get('Tier', 'Unknown'),
+                        end_date=tier.get('EndDate', '2099-12-31')
+                    )
+        except Exception as db_err:
+            # Log but don't fail the refresh
+            print(f"Warning: Failed to update {item_name} in database: {db_err}")
+        
+        return jsonify({
+            "result": result,
+            "cached_from": "api"
+        }), 200
+        
+    except Exception as e:
+        return jsonify({"error": f"Refresh failed: {str(e)}"}), 500
+
+
 @app.route('/pipeline-cache')
 @login_required
 def pipeline_cache():
@@ -476,68 +544,6 @@ def pipeline_cache():
         if name in _results_cache:
             cached_items.append({"name": name, "type": "sw", "index": i, "result": _results_cache[name]})
     return jsonify({"cached": cached_items, "total_cached": len(_results_cache)})
-
-
-@app.route('/refresh-item', methods=['POST'])
-@login_required
-def refresh_item():
-    """Refresh a single item by re-calling the API and updating database cache."""
-    try:
-        data = request.get_json(silent=True) or {}
-        item_name = data.get('item_name', '').strip()
-        item_type = data.get('item_type', '').strip()
-        
-        if not item_name:
-            return jsonify({"error": "Item name required"}), 400
-        
-        # Set up API
-        keys, instruct = keys_and_prompt_setup()
-        client, config = client_setup(keys)
-        
-        # Call process_line to get fresh result
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(process_line(item_name, client, config, instruct))
-        finally:
-            loop.close()
-        
-        if result is None:
-            return jsonify({"error": "Failed to process item"}), 500
-        
-        # Update in-memory cache
-        cache_key = f"{item_type}:{item_name.strip().lower()}"
-        _results_cache[cache_key] = result
-        
-        # Update database cache (replace old entry)
-        if DATABASE_ENABLED and db_repo:
-            try:
-                from models import assetCache
-                # Delete old entry if exists
-                db_session.query(assetCache).filter_by(item_name=item_name).delete()
-                db_session.commit()
-                
-                # Insert new entry
-                cache_entry = assetCache(
-                    item_name=item_name,
-                    item_type=item_type,
-                    result=json.dumps(result) if isinstance(result, dict) else result,
-                    status='success',
-                    processing_time=0.0
-                )
-                db_session.add(cache_entry)
-                db_session.commit()
-            except Exception as e:
-                print(f"Database update error on refresh: {e}")
-        
-        return jsonify({
-            "success": True,
-            "result": result,
-            "item_name": item_name
-        }), 200
-        
-    except Exception as e:
-        return jsonify({"error": f"Refresh failed: {str(e)}"}), 500
 
 
 @app.route('/export-csv')
@@ -571,6 +577,8 @@ def export_csv():
         )
     except Exception as e:
         return jsonify({"error": f"Export failed: {str(e)}"}), 500
+
+
 
 
 if __name__ == '__main__':

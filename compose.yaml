@@ -17,5 +17,5 @@ services:
       - ./prompt.py:/app/prompt.py
       - ./prompt.txt:/app/prompt.txt
       - ./templates/:/app/templates/
-      - ./asset_cache.db:/app/asset_cache.db
+      - ./data:/app/data
     restart: unless-stopped
