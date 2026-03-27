@@ -275,6 +275,32 @@
     .btn-reset-compact:hover { color: #ffffff; border-color: #ff5c38; background: #ff5c38; }
 
     .eyebrow { font-size: 0.65rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent); margin-bottom: 0.6rem; }
+    
+    /* Live datetime display */
+    .header-eyebrow-wrap {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 2rem;
+      margin-bottom: 0.6rem;
+    }
+    
+    .live-datetime {
+      font-size: 0.65rem;
+      letter-spacing: 0.2em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 400;
+      min-width: 220px;
+      text-align: right;
+      font-family: 'DM Mono', monospace;
+      margin-top: -0.15rem;
+    }
+    
+    body.light-mode .live-datetime {
+      color: #888;
+    }
+    
     h1 { font-family: 'Fraunces', serif; font-weight: 300; font-size: 2.4rem; line-height: 1.1; }
     h1 em { font-style: italic; color: var(--accent); }
     .subtitle { margin-top: 0.75rem; font-size: 0.72rem; color: var(--muted); letter-spacing: 0.05em; }
@@ -985,7 +1011,10 @@
   <div class="header">
     <div class="header-main">
       <div class="header-copy">
-        <p class="eyebrow">// Asset EOS/EOL tracker</p>
+        <div class="header-eyebrow-wrap">
+          <p class="eyebrow">// Asset EOS/EOL tracker</p>
+          <div class="live-datetime" id="liveDateTime">—</div>
+        </div>
         <h1>Asset Intelligence<br/><em>Tracker</em></h1>
         <p class="subtitle">upload → process → preview — all in one page</p>
       </div>
@@ -1151,6 +1180,7 @@
   const swTableBody = document.getElementById('swTableBody');
   const swTableMeta = document.getElementById('swTableMeta');
   const apiKeyToast = document.getElementById('apiKeyToast');
+  const liveDateTime = document.getElementById('liveDateTime');
 
   const ALLOWED = ['.csv', '.xlsx'];
   
@@ -1168,6 +1198,53 @@
   const editedNames = { hw: {}, sw: {} };
   const tableTotals = { hw: 0, sw: 0 };
   const currentTableData = { hw: [], sw: [] };
+
+  // ── Live Date-Time Display ────────────────────────────────────────
+  let lastFetchedTime = null;
+  let timeOffsetMs = 0;
+  
+  async function fetchNTPTime() {
+    try {
+      const response = await fetch('/get-time');
+      const data = await response.json();
+      if (data.timestamp) {
+        lastFetchedTime = new Date(data.timestamp);
+        timeOffsetMs = lastFetchedTime.getTime() - Date.now();
+      }
+    } catch (err) {
+      console.warn('Failed to fetch NTP time:', err);
+    }
+  }
+  
+  function formatDateTimeUTC8() {
+    // Get current UTC time
+    const now = lastFetchedTime ? new Date(lastFetchedTime.getTime() - timeOffsetMs + (Date.now() - lastFetchedTime.getTime())) : new Date();
+    
+    // Convert to UTC+8 by adding 8 hours
+    const utc8Time = new Date(now.getTime() + (8 * 60 * 60 * 1000));
+    
+    const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+    const day = dayNames[utc8Time.getUTCDay()];
+    const date = String(utc8Time.getUTCDate()).padStart(2, '0');
+    const month = String(utc8Time.getUTCMonth() + 1).padStart(2, '0');
+    const year = utc8Time.getUTCFullYear();
+    const hours = String(utc8Time.getUTCHours()).padStart(2, '0');
+    const minutes = String(utc8Time.getUTCMinutes()).padStart(2, '0');
+    return `${day}, ${date}/${month}/${year} - ${hours}:${minutes}`;
+  }
+  
+  function updateLiveDateTime() {
+    if (liveDateTime) {
+      liveDateTime.textContent = formatDateTimeUTC8();
+    }
+  }
+  
+  // Fetch NTP time on load and update every second
+  (async function() {
+    await fetchNTPTime();
+    updateLiveDateTime();
+    setInterval(updateLiveDateTime, 1000);
+  })();
 
   function formatSize(b) {
     if (b < 1024) return b + ' B';

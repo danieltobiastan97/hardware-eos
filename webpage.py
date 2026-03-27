@@ -8,6 +8,8 @@ from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 import time
 from io import BytesIO
+from datetime import datetime, timezone, timedelta
+import ntplib
 
 # Import pipeline functions from prompt.py
 from prompt import keys_and_prompt_setup, client_setup, process_line
@@ -33,6 +35,26 @@ product_repo = ProductEOSRepo(db_session)
 # Results are keyed by item name so re-running skips already-processed items
 _last_upload = {"hw_list": [], "sw_list": []}
 _results_cache = {}   # name -> result dict
+
+# NTP time caching
+_ntp_time_cache = {"timestamp": None, "cached_at": None}
+_ntp_client = ntplib.NTPClient()
+
+def get_ntp_time():
+    """Get current UTC time from NTP server, or use local time if NTP fails."""
+    try:
+        response = _ntp_client.request('pool.ntp.org', version=3, timeout=2)
+        return datetime.fromtimestamp(response.tx_time, tz=timezone.utc)
+    except Exception as e:
+        print(f"Warning: NTP request failed, using local time: {e}")
+        return datetime.now(tz=timezone.utc)
+
+def get_current_time_utc8():
+    """Get current UTC+8 time from NTP."""
+    utc_time = get_ntp_time()
+    utc8_offset = timedelta(hours=8)
+    utc8_time = utc_time + utc8_offset
+    return utc8_time.replace(tzinfo=None)
 
 
 def _is_authenticated():
@@ -373,6 +395,7 @@ def run_pipeline():
                             
                             # Store in database for persistence
                             try:
+                                ntp_time = get_ntp_time()
                                 product_repo.add_product(
                                     name=name,
                                     summary=result.get('Summary', ''),
@@ -380,7 +403,8 @@ def run_pipeline():
                                     support_model=result.get('Support Model', 'Unknown'),
                                     eos_date=result.get('EOS Date', '2099-12-31'),
                                     source_urls=result.get('Source URLs', []),
-                                    confidence=result.get('Confidence', 0.0)
+                                    confidence=result.get('Confidence', 0.0),
+                                    created_timestamp=ntp_time
                                 )
                                 # Store support tiers if present
                                 db_product = db_session.query(__import__('models').ProductEOS).filter(
@@ -494,6 +518,7 @@ def refresh_item():
                 db_session.commit()
             else:
                 # Create new product
+                ntp_time = get_ntp_time()
                 product_repo.add_product(
                     name=item_name,
                     summary=result.get('Summary', ''),
@@ -501,7 +526,8 @@ def refresh_item():
                     support_model=result.get('Support Model', 'Unknown'),
                     eos_date=result.get('EOS Date', '2099-12-31'),
                     source_urls=result.get('Source URLs', []),
-                    confidence=result.get('Confidence', 0.0)
+                    confidence=result.get('Confidence', 0.0),
+                    created_timestamp=ntp_time
                 )
                 existing_product = db_session.query(ProductEOS).filter(
                     sql_func.lower(ProductEOS.name) == item_name.strip().lower()
@@ -581,6 +607,17 @@ def export_csv():
         return jsonify({"error": f"Export failed: {str(e)}"}), 500
 
 
+@app.route('/get-time')
+def get_time():
+    """Endpoint to get current UTC+8 time from NTP."""
+    try:
+        current_time = get_current_time_utc8()
+        return jsonify({
+            "timestamp": current_time.isoformat(),
+            "unix_timestamp": current_time.timestamp()
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == '__main__':
