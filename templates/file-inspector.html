@@ -1216,7 +1216,7 @@
     }
   }
   
-  function formatDateTimeUTC8() {
+    function formatDateTimeUTC8() {
     // Get current UTC time
     const now = lastFetchedTime ? new Date(lastFetchedTime.getTime() - timeOffsetMs + (Date.now() - lastFetchedTime.getTime())) : new Date();
     
@@ -1230,7 +1230,8 @@
     const year = utc8Time.getUTCFullYear();
     const hours = String(utc8Time.getUTCHours()).padStart(2, '0');
     const minutes = String(utc8Time.getUTCMinutes()).padStart(2, '0');
-    return `${day}, ${date}/${month}/${year} - ${hours}:${minutes}`;
+    const seconds = String(utc8Time.getUTCSeconds()).padStart(2, '0');
+    return `${day}, ${date}/${month}/${year} - ${hours}:${minutes}:${seconds}`;
   }
   
   function updateLiveDateTime() {

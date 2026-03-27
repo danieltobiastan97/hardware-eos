@@ -577,13 +577,36 @@ def pipeline_cache():
 @app.route('/export-csv')
 @login_required
 def export_csv():
-    """Export results cache to CSV file and serve it to the user."""
+    """Export results cache or database to CSV file and serve it to the user."""
     try:
-        if not _results_cache:
-            return jsonify({"error": "No results to export. Please run the pipeline first."}), 400
+        results = []
         
-        # Convert cache dict to list of results
-        results = list(_results_cache.values())
+        # First, try to use in-memory cache (from current pipeline run)
+        if _results_cache:
+            results = list(_results_cache.values())
+        else:
+            # If cache is empty, query database for all products
+            from models import ProductEOS
+            db_products = db_session.query(ProductEOS).all()
+            if not db_products:
+                return jsonify({"error": "No results to export. Please run the pipeline first."}), 400
+            
+            # Convert database products to result format
+            for product in db_products:
+                result = {
+                    "Name": product.name,
+                    "Summary": product.summary,
+                    "Hardware/Software": product.hardware_software,
+                    "Support Model": product.support_model,
+                    "EOS Date": product.eos_date.isoformat() if product.eos_date else "N/A",
+                    "Source URLs": product.source_urls or [],
+                    "Confidence": product.confidence,
+                    "Support Tiers": [{"Tier": tier.tier, "EndDate": tier.end_date.isoformat() if tier.end_date else "N/A"} for tier in product.support_tiers]
+                }
+                results.append(result)
+        
+        if not results:
+            return jsonify({"error": "No results to export. Please run the pipeline first."}), 400
         
         # Use the Processing class to create DataFrame
         df = Processing.export_to_csv(results, filename=None)
