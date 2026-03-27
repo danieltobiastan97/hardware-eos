@@ -14,7 +14,7 @@ from prompt import keys_and_prompt_setup, client_setup, process_line
 from classes import Helper, Processing
 
 # Import database models
-from models import init_database, ProductEOSRepo
+from models import init_database, ProductEOSRepo, parse_date
 
 app = Flask(__name__)
 app.secret_key = os.getenv("APP_SECRET_KEY", "change-this-secret-key")
@@ -394,6 +394,7 @@ def run_pipeline():
                                             end_date=tier.get('EndDate', '2099-12-31')
                                         )
                             except Exception as db_err:
+                                db_session.rollback()
                                 # Log but don't fail the pipeline
                                 print(f"Warning: Failed to store {name} in database: {db_err}")
                             
@@ -484,7 +485,7 @@ def refresh_item():
                 existing_product.summary = result.get('Summary', '')
                 existing_product.hardware_software = result.get('Hardware/Software', item_type)
                 existing_product.support_model = result.get('Support Model', 'Unknown')
-                existing_product.eos_date = result.get('EOS Date', '2099-12-31')
+                existing_product.eos_date = parse_date(result.get('EOS Date', '2099-12-31'))
                 existing_product.source_urls = result.get('Source URLs', [])
                 existing_product.confidence = result.get('Confidence', 0.0)
                 # Clear old support tiers
@@ -515,6 +516,7 @@ def refresh_item():
                         end_date=tier.get('EndDate', '2099-12-31')
                     )
         except Exception as db_err:
+            db_session.rollback()
             # Log but don't fail the refresh
             print(f"Warning: Failed to update {item_name} in database: {db_err}")
         

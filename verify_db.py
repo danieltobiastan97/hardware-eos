@@ -17,9 +17,9 @@ try:
 
     if product_count > 0:
         print('\nProducts in database:')
-        result = connection.execute(text('SELECT id, name, eos_date FROM product_eos'))
+        result = connection.execute(text('SELECT id, name, eos_date, support_model FROM product_eos'))
         for row in result:
-            print(f'  - {row[1]} (EOS: {row[2]})')
+            print(f'  - {row[1]} (EOS: {row[2]}, Result: {row[3]})')
 
     connection.close()
     print('\n✓ Database is persistent!')

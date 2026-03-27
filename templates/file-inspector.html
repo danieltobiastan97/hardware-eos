@@ -324,7 +324,6 @@
       border-color: var(--accent-dim);
     }
     .btn-search-individual:active { transform: translateY(1px); }
-    .btn-search-individual.active {}
 
     /* Export button for individual search */
     .btn-export-individual {
@@ -1165,6 +1164,7 @@
   let manualTimerInterval = null;
   let apiKeyToastTimer = null;
   const selectedRows = { hw: new Set(), sw: new Set() };
+  const lastToggledRow = { hw: null, sw: null };
   const editedNames = { hw: {}, sw: {} };
   const tableTotals = { hw: 0, sw: 0 };
   const currentTableData = { hw: [], sw: [] };
@@ -1195,38 +1195,95 @@
   }
   function clearError()   { errorMsg.classList.remove('visible'); }
 
-  function resetSelection(typeKey, total) {
-    selectedRows[typeKey] = new Set(Array.from({ length: total }, (_, index) => index));
+  function syncSelection(typeKey, total, preserveExisting = true) {
+    const hadPreviousRows = (tableTotals[typeKey] || 0) > 0;
+    const previous = selectedRows[typeKey] || new Set();
+
+    if (!preserveExisting || (!hadPreviousRows && previous.size === 0)) {
+      selectedRows[typeKey] = new Set(Array.from({ length: total }, (_, index) => index));
+    } else {
+      const next = new Set();
+      previous.forEach(index => {
+        if (index >= 0 && index < total) next.add(index);
+      });
+      selectedRows[typeKey] = next;
+    }
+
     tableTotals[typeKey] = total;
+    if (total === 0) lastToggledRow[typeKey] = null;
+  }
+
+  function applyRowSelection(typeKey, rowIndex, checked) {
+    if (checked) selectedRows[typeKey].add(rowIndex);
+    else selectedRows[typeKey].delete(rowIndex);
+  }
+
+  function applyRangeSelection(typeKey, bodyElement, fromIndex, toIndex, checked) {
+    const start = Math.min(fromIndex, toIndex);
+    const end = Math.max(fromIndex, toIndex);
+
+    for (let idx = start; idx <= end; idx += 1) {
+      const checkbox = bodyElement.querySelector(`.row-select[data-type="${typeKey}"][data-index="${idx}"]`);
+      if (checkbox) checkbox.checked = checked;
+      applyRowSelection(typeKey, idx, checked);
+    }
+  }
+
+  function getTableBodyByType(typeKey) {
+    return typeKey === 'hw' ? hwTableBody : swTableBody;
+  }
+
+  function getCheckedRowIndices(typeKey) {
+    const checked = new Set();
+    const bodyElement = getTableBodyByType(typeKey);
+    if (!bodyElement) return checked;
+
+    bodyElement.querySelectorAll('.row-select:checked').forEach(checkbox => {
+      const idx = Number(checkbox.dataset.index);
+      if (!Number.isNaN(idx)) checked.add(idx);
+    });
+
+    return checked;
   }
 
   function updateTableMeta(typeKey) {
     const total = tableTotals[typeKey] || 0;
-    const selected = selectedRows[typeKey].size;
+    const selected = getCheckedRowIndices(typeKey).size;
     const metaElement = typeKey === 'hw' ? hwTableMeta : swTableMeta;
     metaElement.innerHTML = `<span>${total}</span> rows · <span>${selected}</span> selected`;
   }
 
   function syncSelectAllState(typeKey) {
-    const total = tableTotals[typeKey] || 0;
+    const bodyElement = getTableBodyByType(typeKey);
+    const total = bodyElement ? bodyElement.querySelectorAll('.row-select').length : (tableTotals[typeKey] || 0);
     const selectAll = document.getElementById(`select-all-${typeKey}`);
     if (!selectAll) return;
-    const selected = selectedRows[typeKey].size;
+    const selected = getCheckedRowIndices(typeKey).size;
     selectAll.checked = total > 0 && selected === total;
     selectAll.indeterminate = selected > 0 && selected < total;
   }
 
+  function refreshSelectionFromDOM() {
+    selectedRows.hw = getCheckedRowIndices('hw');
+    selectedRows.sw = getCheckedRowIndices('sw');
+    updateTableMeta('hw');
+    updateTableMeta('sw');
+    syncSelectAllState('hw');
+    syncSelectAllState('sw');
+  }
+
   function buildPipelineUrl() {
+    refreshSelectionFromDOM();
     const params = new URLSearchParams();
 
-    [...selectedRows.hw].sort((a, b) => a - b).forEach(index => {
+    [...getCheckedRowIndices('hw')].sort((a, b) => a - b).forEach(index => {
       params.append('hw', index);
       const row = document.querySelector(`tr[data-row-id="row-hw-${index}"]`);
       const name = row?.querySelector('.name-text')?.textContent?.trim();
       if (name) params.append(`name_hw_${index}`, name);
     });
 
-    [...selectedRows.sw].sort((a, b) => a - b).forEach(index => {
+    [...getCheckedRowIndices('sw')].sort((a, b) => a - b).forEach(index => {
       params.append('sw', index);
       const row = document.querySelector(`tr[data-row-id="row-sw-${index}"]`);
       const name = row?.querySelector('.name-text')?.textContent?.trim();
@@ -1254,6 +1311,7 @@
       hwTableSection.style.display = 'none';
       tableTotals.hw = 0;
       selectedRows.hw = new Set();
+      lastToggledRow.hw = null;
     }
 
     if (hasSW) {
@@ -1263,6 +1321,7 @@
       swTableSection.style.display = 'none';
       tableTotals.sw = 0;
       selectedRows.sw = new Set();
+      lastToggledRow.sw = null;
     }
 
     if (hasHW || hasSW) {
@@ -1369,6 +1428,12 @@
 
       currentTableData.hw = [];
       currentTableData.sw = allItems;
+      selectedRows.hw = new Set();
+      selectedRows.sw = new Set();
+      tableTotals.hw = 0;
+      tableTotals.sw = 0;
+      lastToggledRow.hw = null;
+      lastToggledRow.sw = null;
       editedNames.hw = {};
       editedNames.sw = {};
       renderCurrentTables(false);   // sets up selectedRows.sw, hides hw section
@@ -1411,6 +1476,12 @@
 
     currentTableData.hw = data.hw_data ? [...data.hw_data] : [];
     currentTableData.sw = data.sw_data ? [...data.sw_data] : [];
+    selectedRows.hw = new Set();
+    selectedRows.sw = new Set();
+    tableTotals.hw = 0;
+    tableTotals.sw = 0;
+    lastToggledRow.hw = null;
+    lastToggledRow.sw = null;
     editedNames.hw = {};
     editedNames.sw = {};
     renderCurrentTables(showPipeline);
@@ -1443,8 +1514,9 @@
   function renderTable(data, headElement, bodyElement, type) {
     if (!data || data.length === 0) return false;
 
-    const typeLabel = type === 'hardware' ? 'hw' : 'sw';
-    resetSelection(typeLabel, data.length);
+    const normalizedType = String(type || '').toLowerCase();
+    const typeLabel = (normalizedType === 'hw' || normalizedType === 'hardware') ? 'hw' : 'sw';
+    syncSelection(typeLabel, data.length, true);
 
     // Create header with only at-a-glance columns
     headElement.innerHTML = '';
@@ -1456,7 +1528,6 @@
         selectAll.type = 'checkbox';
         selectAll.id = `select-all-${typeLabel}`;
         selectAll.className = 'select-all-checkbox';
-        selectAll.checked = true;
         selectAll.title = 'Select all rows';
         selectAll.addEventListener('click', event => event.stopPropagation());
         selectAll.addEventListener('change', event => {
@@ -1464,9 +1535,8 @@
           bodyElement.querySelectorAll('.row-select').forEach(checkbox => {
             checkbox.checked = checked;
           });
-          selectedRows[typeLabel] = checked
-            ? new Set(Array.from({ length: data.length }, (_, rowIndex) => rowIndex))
-            : new Set();
+          selectedRows[typeLabel] = getCheckedRowIndices(typeLabel);
+          lastToggledRow[typeLabel] = null;
           updateTableMeta(typeLabel);
           syncSelectAllState(typeLabel);
         });
@@ -1484,21 +1554,32 @@
       const tr = document.createElement('tr');
       tr.className = 'expandable-row';
       tr.dataset.rowId = `row-${typeLabel}-${i}`;
+      tr.tabIndex = 0;
 
       const tdSelect = document.createElement('td');
       tdSelect.className = 'select-cell';
+      tdSelect.addEventListener('click', event => event.stopPropagation());
       const selectInput = document.createElement('input');
       selectInput.type = 'checkbox';
       selectInput.className = 'row-select';
-      selectInput.checked = true;
+      selectInput.checked = selectedRows[typeLabel].has(i);
       selectInput.dataset.type = typeLabel;
       selectInput.dataset.index = String(i);
       selectInput.title = `Select ${row.Name || ''}`;
-      selectInput.addEventListener('click', event => event.stopPropagation());
-      selectInput.addEventListener('change', event => {
+      selectInput.addEventListener('click', event => {
+        event.stopPropagation();
         const rowIndex = Number(event.target.dataset.index);
-        if (event.target.checked) selectedRows[typeLabel].add(rowIndex);
-        else selectedRows[typeLabel].delete(rowIndex);
+        const checked = event.target.checked;
+        const previousIndex = lastToggledRow[typeLabel];
+
+        if (event.shiftKey && previousIndex !== null) {
+          applyRangeSelection(typeLabel, bodyElement, previousIndex, rowIndex, checked);
+        } else {
+          applyRowSelection(typeLabel, rowIndex, checked);
+        }
+
+        selectedRows[typeLabel] = getCheckedRowIndices(typeLabel);
+        lastToggledRow[typeLabel] = rowIndex;
         updateTableMeta(typeLabel);
         syncSelectAllState(typeLabel);
       });
@@ -1588,6 +1669,12 @@
       
       // Click handler for expansion
       tr.addEventListener('click', () => toggleRow(tr, bodyElement, row, typeLabel, i));
+      tr.addEventListener('keydown', event => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        if (event.target !== tr) return;
+        event.preventDefault();
+        toggleRow(tr, bodyElement, row, typeLabel, i);
+      });
       
       bodyElement.appendChild(tr);
 
@@ -1820,6 +1907,8 @@
     tableTotals.sw = 0;
     selectedRows.hw = new Set();
     selectedRows.sw = new Set();
+    lastToggledRow.hw = null;
+    lastToggledRow.sw = null;
     editedNames.hw = {};
     editedNames.sw = {};
     manualAutoRunActive = false;
@@ -1892,6 +1981,12 @@
 
     currentTableData.hw = testData.hw_data ? [...testData.hw_data] : [];
     currentTableData.sw = testData.sw_data ? [...testData.sw_data] : [];
+    selectedRows.hw = new Set();
+    selectedRows.sw = new Set();
+    tableTotals.hw = 0;
+    tableTotals.sw = 0;
+    lastToggledRow.hw = null;
+    lastToggledRow.sw = null;
     editedNames.hw = {};
     editedNames.sw = {};
     renderCurrentTables();
@@ -2256,6 +2351,7 @@
   // ── Pipeline trigger ──────────────────────────────────────────────────────
   function startPipelineRun(autoFromManual = false) {
     commitAllOpenNameEdits();
+    refreshSelectionFromDOM();
 
     if (selectedRows.hw.size === 0 && selectedRows.sw.size === 0) {
       showError('Please select at least one item before running the AI pipeline.');
