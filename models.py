@@ -167,11 +167,12 @@ class ProductEOSRepo:
     def __init__(self, session):
         self.session = session
 
-    def add_product(self, name, summary, hardware_software, support_model, eos_date, source_urls, confidence=1.0):
+    def add_product(self, name, summary, hardware_software, support_model, eos_date, source_urls, confidence=1.0, created_timestamp=None):
         """Add a new product with EOS information.
         
         Args:
             eos_date: Can be a date object, datetime object, or ISO format string (YYYY-MM-DD)
+            created_timestamp: Optional datetime object for when product was created (default: now UTC)
         """
         product = ProductEOS(
             name=name,
@@ -180,7 +181,8 @@ class ProductEOSRepo:
             support_model=support_model,
             eos_date=parse_date(eos_date),  # Convert to date object
             source_urls=source_urls,
-            confidence=confidence
+            confidence=confidence,
+            created_date=created_timestamp or datetime.utcnow()
         )
         self.session.add(product)
         self.session.commit()

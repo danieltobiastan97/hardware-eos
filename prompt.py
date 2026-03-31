@@ -139,7 +139,7 @@ def main():
     spinner = Spinner("Reading file")
     spinner.start()
     processor = Helper()
-    hw_list, sw_list = processor.preprocess('test.xlsx', sheet='Sheet1')
+    hw_list, sw_list = processor.preprocess('test.xlsx', sheet='Asset List')
     spinner.stop()
 
     # show sw
@@ -157,4 +157,3 @@ def main():
 if __name__ == '__main__':
     main()
 
-### functions for manual mode in webpage

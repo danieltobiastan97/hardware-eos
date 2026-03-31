@@ -3,5 +3,6 @@ flask-sqlalchemy==3.1.1
 google-genai==1.68.0
 gunicorn==23.0.0
 numpy==2.3.1
+ntplib==0.4.0
 openpyxl==3.1.5
 pandas==2.3.3
