@@ -57,6 +57,15 @@ def get_current_time_utc8():
     return utc8_time.replace(tzinfo=None)
 
 
+def _is_persistable_iso_date(value):
+    """Return True when a value can be stored in the DATE column."""
+    try:
+        parse_date(value)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
 def _is_authenticated():
     return session.get("user") == ADMIN_USERNAME
 
@@ -267,9 +276,17 @@ def upload_manual():
         if not items:
             return jsonify(_build_upload_payload([], [], 0.0, error='No manual query provided.')), 400
 
-        # Stage all items for pipeline (pipeline classifies HW vs SW per item)
+        # Stage all manual items with an unknown type until the pipeline classifies them.
         hw_list = []
-        sw_list = items
+        sw_list = [
+            {
+                "Name": item,
+                "Hardware/Software": "N.A",
+                "EOS Date": "N/A",
+                "Confidence": 0.0,
+            }
+            for item in items
+        ]
 
         _last_upload["hw_list"] = hw_list
         _last_upload["sw_list"] = sw_list
@@ -311,6 +328,7 @@ def run_pipeline():
         selected_sw = _parse_selected_indices("sw")
         hw_name_overrides = _parse_name_overrides("hw")
         sw_name_overrides = _parse_name_overrides("sw")
+        skip_cache = request.args.get("skip_cache", "").lower() in {"1", "true", "yes"}
 
         if not hw_list and not sw_list:
             yield sse("pipeline-error", {"error": "No data to process. Please upload a file first."})
@@ -348,30 +366,34 @@ def run_pipeline():
             name = (hw_name_overrides if item_type == "hw" else sw_name_overrides).get(index, original_name)
             cache_key = f"{item_type}:{name.strip().lower()}"
 
-            # 1. Check database first (persistent cache)
-            db_product = db_session.query(__import__('models').ProductEOS).filter(
-                __import__('sqlalchemy').func.lower(__import__('models').ProductEOS.name) == name.strip().lower()
-            ).first()
-            
-            if db_product:
-                # Found in database - return cached result
-                result = db_product.to_dict()
-                yield sse("item-done", {
-                    "name": name, "type": item_type, "index": index,
-                    "result": result, "cached": True, "cached_from": "database"
-                })
-                processed += 1
-            # 2. Check in-memory cache (session cache)
-            elif cache_key in _results_cache:
-                yield sse("item-done", {
-                    "name": name, "type": item_type, "index": index,
-                    "result": _results_cache[cache_key], "cached": True, "cached_from": "memory"
-                })
-                processed += 1
+            if not skip_cache:
+                # 1. Check database first (persistent cache)
+                db_product = db_session.query(__import__('models').ProductEOS).filter(
+                    __import__('sqlalchemy').func.lower(__import__('models').ProductEOS.name) == name.strip().lower()
+                ).first()
+
+                if db_product:
+                    # Found in database - return cached result
+                    result = db_product.to_dict()
+                    yield sse("item-done", {
+                        "name": name, "type": item_type, "index": index,
+                        "result": result, "cached": True, "cached_from": "database"
+                    })
+                    processed += 1
+                    continue
+
+                # 2. Check in-memory cache (session cache)
+                if cache_key in _results_cache:
+                    yield sse("item-done", {
+                        "name": name, "type": item_type, "index": index,
+                        "result": _results_cache[cache_key], "cached": True, "cached_from": "memory"
+                    })
+                    processed += 1
+                    continue
+
             # 3. Queue for API processing
-            else:
-                yield sse("item-start", {"name": name, "type": item_type, "index": index})
-                to_process.append((name, item_type, index, cache_key))
+            yield sse("item-start", {"name": name, "type": item_type, "index": index})
+            to_process.append((name, item_type, index, cache_key))
 
         # ── Process non-cached items concurrently ──────────────────────────
         if to_process:
@@ -393,34 +415,44 @@ def run_pipeline():
                             # Store in both caches (memory and database)
                             _results_cache[cache_key] = result
                             
-                            # Store in database for persistence
-                            try:
-                                ntp_time = get_ntp_time()
-                                product_repo.add_product(
-                                    name=name,
-                                    summary=result.get('Summary', ''),
-                                    hardware_software=result.get('Hardware/Software', item_type),
-                                    support_model=result.get('Support Model', 'Unknown'),
-                                    eos_date=result.get('EOS Date', '2099-12-31'),
-                                    source_urls=result.get('Source URLs', []),
-                                    confidence=result.get('Confidence', 0.0),
-                                    created_timestamp=ntp_time
-                                )
-                                # Store support tiers if present
-                                db_product = db_session.query(__import__('models').ProductEOS).filter(
-                                    __import__('sqlalchemy').func.lower(__import__('models').ProductEOS.name) == name.strip().lower()
-                                ).first()
-                                if db_product and result.get('Support Tiers'):
-                                    for tier in result['Support Tiers']:
-                                        product_repo.add_support_tier(
-                                            product_id=db_product.id,
-                                            tier_name=tier.get('Tier', 'Unknown'),
-                                            end_date=tier.get('EndDate', '2099-12-31')
-                                        )
-                            except Exception as db_err:
-                                db_session.rollback()
-                                # Log but don't fail the pipeline
-                                print(f"Warning: Failed to store {name} in database: {db_err}")
+                            # Skip database persistence for Unknown/N.A classifications
+                            hw_sw_type = result.get('Hardware/Software', '').lower()
+                            eos_date = result.get('EOS Date', '2099-12-31')
+                            if hw_sw_type in ('unknown', 'n.a', 'na'):
+                                # Do not persist Unknown items to database
+                                pass
+                            # Store in database for persistence if it has a persistable date
+                            elif _is_persistable_iso_date(eos_date):
+                                try:
+                                    ntp_time = get_ntp_time()
+                                    product_repo.add_product(
+                                        name=name,
+                                        summary=result.get('Summary', ''),
+                                        hardware_software=result.get('Hardware/Software', item_type),
+                                        support_model=result.get('Support Model', 'Unknown'),
+                                        eos_date=eos_date,
+                                        source_urls=result.get('Source URLs', []),
+                                        confidence=result.get('Confidence', 0.0),
+                                        created_timestamp=ntp_time
+                                    )
+                                    # Store support tiers if present
+                                    db_product = db_session.query(__import__('models').ProductEOS).filter(
+                                        __import__('sqlalchemy').func.lower(__import__('models').ProductEOS.name) == name.strip().lower()
+                                    ).first()
+                                    if db_product and result.get('Support Tiers'):
+                                        for tier in result['Support Tiers']:
+                                            end_date = tier.get('EndDate', '2099-12-31')
+                                            if not _is_persistable_iso_date(end_date):
+                                                continue
+                                            product_repo.add_support_tier(
+                                                product_id=db_product.id,
+                                                tier_name=tier.get('Tier', 'Unknown'),
+                                                end_date=end_date
+                                            )
+                                except Exception as db_err:
+                                    db_session.rollback()
+                                    # Log but don't fail the pipeline
+                                    print(f"Warning: Failed to store {name} in database: {db_err}")
                             
                             yield sse("item-done", {
                                 "name": name, "type": item_type, "index": index, 
@@ -504,12 +536,21 @@ def refresh_item():
                 sql_func.lower(ProductEOS.name) == item_name.strip().lower()
             ).first()
             
+            hw_sw_type = result.get('Hardware/Software', '').lower()
+            if hw_sw_type in ('unknown', 'n.a', 'na'):
+                # Do not persist Unknown items to database
+                return jsonify({"result": result, "cached_from": "api"}), 200
+            
             if existing_product:
                 # Update existing product
+                eos_date = result.get('EOS Date', '2099-12-31')
+                if not _is_persistable_iso_date(eos_date):
+                    return jsonify({"result": result, "cached_from": "api"}), 200
+
                 existing_product.summary = result.get('Summary', '')
                 existing_product.hardware_software = result.get('Hardware/Software', item_type)
                 existing_product.support_model = result.get('Support Model', 'Unknown')
-                existing_product.eos_date = parse_date(result.get('EOS Date', '2099-12-31'))
+                existing_product.eos_date = parse_date(eos_date)
                 existing_product.source_urls = result.get('Source URLs', [])
                 existing_product.confidence = result.get('Confidence', 0.0)
                 # Clear old support tiers
@@ -517,14 +558,18 @@ def refresh_item():
                     db_session.delete(tier)
                 db_session.commit()
             else:
-                # Create new product
+                # Create new product - but skip if Unknown
+                eos_date = result.get('EOS Date', '2099-12-31')
+                if not _is_persistable_iso_date(eos_date):
+                    return jsonify({"result": result, "cached_from": "api"}), 200
+
                 ntp_time = get_ntp_time()
                 product_repo.add_product(
                     name=item_name,
                     summary=result.get('Summary', ''),
                     hardware_software=result.get('Hardware/Software', item_type),
                     support_model=result.get('Support Model', 'Unknown'),
-                    eos_date=result.get('EOS Date', '2099-12-31'),
+                    eos_date=eos_date,
                     source_urls=result.get('Source URLs', []),
                     confidence=result.get('Confidence', 0.0),
                     created_timestamp=ntp_time
@@ -536,10 +581,13 @@ def refresh_item():
             # Add support tiers
             if existing_product and result.get('Support Tiers'):
                 for tier in result['Support Tiers']:
+                    end_date = tier.get('EndDate', '2099-12-31')
+                    if not _is_persistable_iso_date(end_date):
+                        continue
                     product_repo.add_support_tier(
                         product_id=existing_product.id,
                         tier_name=tier.get('Tier', 'Unknown'),
-                        end_date=tier.get('EndDate', '2099-12-31')
+                        end_date=end_date
                     )
         except Exception as db_err:
             db_session.rollback()

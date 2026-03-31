@@ -24,4 +24,4 @@ EXPOSE 5000
 ENV APP_SECRET_KEY=change-this-secret-key
 ENV APP_ADMIN_PASSWORD=changeme
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "8", "--timeout", "120", "webpage:app"]
+CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 1 --threads 8 --timeout 120 webpage:app"]

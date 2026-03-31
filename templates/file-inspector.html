@@ -1368,6 +1368,10 @@
       if (name) params.append(`name_sw_${index}`, name);
     });
 
+    if (manualMode) {
+      params.append('skip_cache', '1');
+    }
+
     const query = params.toString();
     return query ? `/run-pipeline?${query}` : '/run-pipeline';
   }
@@ -1427,7 +1431,8 @@
     const itemIndex = itemDonePayload.index;
     const declaredType = String(result['Hardware/Software'] || '').toLowerCase();
     const isHardware = declaredType.includes('hardware');
-    const finalTypeStr = isHardware ? 'Hardware' : 'Software';
+    const isSoftware = declaredType.includes('software');
+    const finalTypeStr = isHardware ? 'Hardware' : isSoftware ? 'Software' : 'N.A';
 
     // Update the data record
     if (currentTableData[itemType]?.[itemIndex] !== undefined) {
@@ -1437,7 +1442,12 @@
     // Update type badge in-place — no full re-render
     const tr = document.querySelector(`tr[data-row-id="row-${itemType}-${itemIndex}"]`);
     if (tr && tr.cells[3]) {
-      tr.cells[3].innerHTML = `<span class="type-badge ${isHardware ? 'hw' : 'sw'}">${isHardware ? 'HW' : 'SW'}</span>`;
+      const normalizedFinal = String(finalTypeStr).toLowerCase();
+      if (normalizedFinal === 'n.a' || normalizedFinal === 'na' || normalizedFinal === 'unknown') {
+        tr.cells[3].innerHTML = `<span class="type-badge" style="opacity:0.3; border-color:rgba(128,128,128,0.3); color:var(--muted);">—</span>`;
+      } else {
+        tr.cells[3].innerHTML = `<span class="type-badge ${isHardware ? 'hw' : 'sw'}">${isHardware ? 'HW' : 'SW'}</span>`;
+      }
     }
   }
 
@@ -1701,9 +1711,11 @@
       const tdType = document.createElement('td');
       tdType.className = 'type-badge-cell';
       const typeStr = row['Hardware/Software'] || '';
-      const isBlank = !typeStr || typeStr === 'N.A';
-      const isSW = typeStr.toLowerCase().includes('software');
-      if (isBlank) {
+      const normalizedTypeStr = String(typeStr).toLowerCase();
+      const isBlank = !typeStr || normalizedTypeStr === 'n.a' || normalizedTypeStr === 'na' || normalizedTypeStr === 'unknown';
+      const isSW = normalizedTypeStr.includes('software');
+      const isHW = normalizedTypeStr.includes('hardware');
+      if (isBlank || (!isSW && !isHW)) {
         tdType.innerHTML = `<span class="type-badge" style="opacity:0.3; border-color:rgba(128,128,128,0.3); color:var(--muted);">—</span>`;
       } else {
         tdType.innerHTML = `<span class="type-badge ${isSW ? 'sw' : 'hw'}">${isSW ? 'SW' : 'HW'}</span>`;
@@ -2303,6 +2315,20 @@
     if (icon)    { icon.textContent = ''; icon.classList.remove('visible'); }
   }
 
+  function getConfidenceExplanation(score) {
+    if (score >= 1.0) {
+      return 'Direct exact date from current official vendor documentation.';
+    } else if (score >= 0.9) {
+      return 'Official documentation with broad timeframe OR 2+ reputable tech/analyst outlets agree on exact date.';
+    } else if (score >= 0.7) {
+      return 'Single reputable tech outlet OR verified vendor employee on official forum.';
+    } else if (score >= 0.4) {
+      return 'Third-party lifecycle aggregators without primary source OR consensus from IT forums.';
+    } else {
+      return 'Conflicting dates, AI-inferred lifecycle, or no credible data found.';
+    }
+  }
+
   function rowSetDone(type, index, result, fromCache = false, cachedFrom = 'api') {
     const spinner = document.getElementById(`spinner-${type}-${index}`);
     const icon    = document.getElementById(`icon-${type}-${index}`);
@@ -2363,8 +2389,9 @@
       const c = parseFloat(result.Confidence) || 0;
       const w = Math.max(c * 100, 5);
       const cls = c >= 0.8 ? 'high' : c >= 0.5 ? 'med' : 'low';
+      const explanation = getConfidenceExplanation(c);
       tdConf.innerHTML = `
-        <div class="confidence-bar">
+        <div class="confidence-bar" title="${explanation}" style="cursor:help;">
           <div class="confidence-track">
             <div class="confidence-fill ${cls}" style="width:${w}%"></div>
           </div>

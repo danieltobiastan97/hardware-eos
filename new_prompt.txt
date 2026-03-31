@@ -1,0 +1,48 @@
+The short answer is **no, "support tiers" are not well-defined across the industry.** While the *concept* of phasing out support is universal, the terminology is a chaotic mess.
+
+If you use a freeform array like `[{"Tier": "Vendor String", "EndDate": "YYYY-MM-DD"}]`, your database will quickly fill up with dozens of synonymous terms. Microsoft calls it "Extended Support," Cisco calls it "End of Vulnerability/Security Support (EoVSS)," and VMware/Broadcom calls it "Technical Guidance."
+
+If your goal is to programmatically query this data later (e.g., *"Show me all assets losing security patches this year"*), a freeform array will force you to write complex mapping logic downstream.
+
+### The Better Way: Standardized Lifecycle Milestones
+
+Instead of capturing the vendor's marketing terms verbatim, it is much more bulletproof to force the LLM to map the vendor's terminology into a **flat, standardized schema** based on the actual *type* of support being lost.
+
+Here is how you should structure it:
+
+| Standardized Milestone | What it actually means | Vendor Jargon Examples | Proposed JSON Key |
+| :--- | :--- | :--- | :--- |
+| **End of Mainstream** | No more new features or non-critical bug fixes. The product is feature-locked. | *Microsoft:* Mainstream Support<br>*Cisco:* End of Software Maintenance (EoSW)<br>*VMware:* General Support | `EOS_Mainstream` |
+| **End of Security** | **CRITICAL.** No more security patches or CVE mitigations. The asset is now a liability. | *Microsoft:* Extended Support<br>*Cisco:* End of Vulnerability (EoVSS)<br>*Red Hat:* Extended Life Phase | `EOS_Security` |
+| **End of Hardware** | The vendor will no longer replace dead parts or offer RMA contracts. (Hardware only). | *Cisco:* Last Date of Support (LDOS)<br>*Dell:* End of Standard Support (EoSS) | `EOS_Hardware` |
+| **End of Sale (EOL)** | You can no longer buy the product from the vendor. (Usually precedes EOS by 3-5 years). | End of Sale (EoS), End of Availability (EoA), End of Marketing | `EOL_Date` |
+
+-----
+
+### The Upgraded JSON Schema
+
+By flattening the array into specific date keys, you make the JSON instantly queryable for compliance and security teams. You can also include a `Vendor_Terminology` string just in case an engineer needs to look up the exact vendor document.
+
+Here is how you would update the `OUTPUT FORMAT` in your script:
+
+```json
+{
+  "Name": "Canonical product name",
+  "Summary": "One-sentence summary of key support dates/policy.",
+  "Hardware/Software": "Hardware" | "Software" | "Unknown",
+  "Support Model": "Fixed" | "Rolling" | "Version-Based" | "NA",
+  "EOL_Date": "YYYY-MM-DD", 
+  "EOS_Mainstream": "YYYY-MM-DD", 
+  "EOS_Security": "YYYY-MM-DD", 
+  "EOS_Hardware": "YYYY-MM-DD",
+  "Vendor_Terminology": "e.g., 'Microsoft Extended Support', 'Cisco LDOS'",
+  "Source URLs": ["https://..."],
+  "Confidence": 0.00
+}
+```
+
+**Why this is superior for a data pipeline:**
+
+1.  **Security Querying:** A security tool only cares about `EOS_Security`. If that date passes, the asset is vulnerable.
+2.  **Procurement Querying:** An IT buyer only cares about `EOS_Hardware` (when to buy replacement servers) or `EOL_Date` (when they can no longer expand their current cluster).
+3.  **Null Handling:** If a product doesn't have a mainstream/extended split (like Apple iPhones, which just stop getting iOS updates all at once), the LLM can simply map that single date to both `EOS_Mainstream` and `EOS_Security`, or leave `EOS_Mainstream` null.
