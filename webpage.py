@@ -622,6 +622,52 @@ def pipeline_cache():
     return jsonify({"cached": cached_items, "total_cached": len(_results_cache)})
 
 
+@app.route('/cache-debug')
+@login_required
+def cache_debug():
+    """DEBUG: Show raw cache contents and current upload lists."""
+    hw_list = _last_upload.get("hw_list", [])
+    sw_list = _last_upload.get("sw_list", [])
+    
+    # Extract names from current lists
+    current_names = []
+    for item in hw_list:
+        name = item if isinstance(item, str) else item.get("Name", str(item))
+        current_names.append(name)
+    for item in sw_list:
+        name = item if isinstance(item, str) else item.get("Name", str(item))
+        current_names.append(name)
+    
+    # Find orphaned cache entries (in cache but not in current lists)
+    orphaned = []
+    for cache_key in _results_cache.keys():
+        if cache_key not in current_names:
+            orphaned.append(cache_key)
+    
+    return jsonify({
+        "memory_cache_items": list(_results_cache.keys()),
+        "memory_cache_count": len(_results_cache),
+        "current_upload_names": current_names,
+        "current_upload_count": len(current_names),
+        "orphaned_cache_items": orphaned,
+        "orphaned_count": len(orphaned)
+    })
+
+
+@app.route('/cache-clear', methods=['POST'])
+@login_required
+def cache_clear():
+    """ADMIN: Clear the in-memory cache."""
+    global _results_cache
+    count = len(_results_cache)
+    _results_cache.clear()
+    return jsonify({
+        "status": "success",
+        "message": f"Cleared {count} items from memory cache",
+        "cleared_count": count
+    })
+
+
 @app.route('/export-csv')
 @login_required
 def export_csv():

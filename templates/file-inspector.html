@@ -1375,12 +1375,12 @@
       
       if (cachedFrom === 'database') {
         iconChar = '◈'; // Cached from database
-        iconColor = '#89b4fa'; // Light blue
-        iconTitle = 'Cached — click to refresh from API';
+        iconColor = '#ff9800'; // Orange
+        iconTitle = 'Retrieved from database — click to refresh from API';
       } else if (cachedFrom === 'memory') {
         iconChar = '◈'; // Cached from memory
         iconColor = '#cba6f7'; // Purple
-        iconTitle = 'Memory cached — click to refresh from API';
+        iconTitle = 'Cached in memory — click to refresh from API';
       }
       
       icon.textContent = iconChar;
