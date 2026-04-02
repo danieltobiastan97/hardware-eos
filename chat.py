@@ -7,107 +7,198 @@ from prompt import keys_and_prompt_setup, client_setup, Spinner, chat_client_set
 # Suppress the specific thought_signature warning from the SDK
 warnings.filterwarnings("ignore", message=".*thought_signature.*")
 
+# ═══════════════════════════════════════════════════════════════════════════
+# Constants & Configuration
+# ═══════════════════════════════════════════════════════════════════════════
 
+# Gemini 2.5 Flash context window limits
+MODEL = "gemini-2.5-flash"
+CONTEXT_WINDOW_TOKENS = 1_000_000  # 1M tokens for flash model
+SAFETY_THRESHOLD = 0.85  # Block at 85% of context window
+ESTIMATED_TOKENS_PER_CHAR = 0.25  # Conservative estimate: 1 token ≈ 4 characters
+
+# Load API keys and system instruction
 with open('keys.json', 'r') as file:
     keys = json.load(file)
 print('✓ API keys loaded successfully.')
 
+keys, system_instruction = keys_and_prompt_setup(prompt_path='prompts/guardrail.txt')
+print('✓ System instruction loaded successfully.')
 
-keys, instruct = keys_and_prompt_setup(prompt_path='prompts/guardrail.txt')
-print('✓ API keys and prompt loaded successfully.')
-client, config = chat_client_setup(keys)
+client, _ = chat_client_setup(keys)
 
-# ───────────────────────────────────────────────────────────────────────
-# Create a simpler config without thinking for gemini-2.5-flash
-# ───────────────────────────────────────────────────────────────────────
+# Create config without thinking (gemini-2.5-flash doesn't support it)
 scraper_client = types.Tool(google_search=types.GoogleSearch())
-chat_config = types.GenerateContentConfig(
-    tools=[scraper_client]
-    # Note: gemini-2.5-flash doesn't support thinking_level, so we removed it
-)
+chat_config = types.GenerateContentConfig(tools=[scraper_client])
 print('✓ Gemini client and config set up successfully.')
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Persistent Chat Context - Maintains conversation history across calls
+# ChatSession Class - Encapsulates stateful chat with context management
 # ═══════════════════════════════════════════════════════════════════════════
-chat_history = []  # Persistent context across multiple chat() calls
-system_instruction = instruct
 
-def chat(user_message, config=None, system_prompt=None):
+class ChatSession:
     """
-    Send a message and maintain conversation context.
-    
-    Args:
-        user_message: The user's input message
-        config: GenerateContentConfig (optional, uses chat_config if not provided)
-        system_prompt: Optional override for system instruction
-        
-    Returns:
-        (response_text, full_chat_history): Tuple of Gemini's response and conversation history
+    Managed chat session using Gemini SDK's native client.chats.create().
+    Handles context window management, token counting, and graceful blocking.
     """
-    global chat_history, system_instruction
     
-    # Use provided config or default to chat_config (without thinking)
-    use_config = config or chat_config
-    
-    # Use override system prompt if provided, otherwise use the global one
-    current_system = system_prompt or system_instruction
-    
-    spinner = Spinner("Gemini is thinking")
-    spinner.start()
-    
-    try:
-        # Build message content: system instruction + conversation history + current message
-        # Format: System instruction, then each previous exchange, then new user message
-        message_parts = [current_system]
+    def __init__(self, system_prompt=None):
+        """Initialize a new chat session with optional system prompt."""
+        self.system_prompt = system_prompt or system_instruction
         
-        # Add all previous messages to maintain context
-        for sender, content in chat_history:
-            prefix = f"\n{sender}: " if sender == "User" else f"\n{sender}: "
-            message_parts.append(prefix + content)
-        
-        # Add the current user message
-        message_parts.append(f"\nUser: {user_message}")
-        
-        # Concatenate all parts into a single string for generate_content
-        full_content = "".join(message_parts)
-        
-        # Send to Gemini with full conversation history as concatenated string
-        response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=full_content,
-            config=use_config
+        # Create native Gemini chat session
+        self.chat_session = client.chats.create(
+            model=MODEL,
+            config=chat_config
         )
         
-        # Store in persistent history
-        chat_history.append(("User", user_message))
-        chat_history.append(("Gemini", response.text))
+        # Track token usage (estimated)
+        self.estimated_tokens_used = self._estimate_tokens(self.system_prompt)
+        self.max_tokens_available = CONTEXT_WINDOW_TOKENS
         
-        return response.text, chat_history
+        # Send system instruction to establish context
+        try:
+            self.chat_session.send_message(self.system_prompt)
+            print("✓ System instruction established in chat session")
+        except Exception as e:
+            print(f"⚠ Warning: Could not establish system instruction: {e}")
+    
+    def _estimate_tokens(self, text):
+        """Estimate token count from text (conservative: 1 token ≈ 4 chars)."""
+        if not text:
+            return 0
+        return max(1, int(len(text) * ESTIMATED_TOKENS_PER_CHAR))
+    
+    def _get_context_usage_percent(self):
+        """Get current context window usage as percentage."""
+        if self.max_tokens_available <= 0:
+            return 100.0
+        return (self.estimated_tokens_used / self.max_tokens_available) * 100
+    
+    def _is_context_full(self):
+        """Check if context window usage exceeds safety threshold."""
+        return self._get_context_usage_percent() >= (SAFETY_THRESHOLD * 100)
+    
+    def send_message(self, user_message):
+        """
+        Send a message to the chat session with context checks.
         
-    finally:
-        spinner.stop()
+        Args:
+            user_message: The user's input message
+            
+        Returns:
+            dict: {
+                'success': bool,
+                'response': str (or None if blocked),
+                'tokens_used': int,
+                'tokens_available': int,
+                'context_usage_percent': float,
+                'blocked': bool,
+                'reason': str (if blocked)
+            }
+        """
+        
+        # Check context window before sending
+        usage_percent = self._get_context_usage_percent()
+        
+        if self._is_context_full():
+            return {
+                'success': False,
+                'response': None,
+                'tokens_used': self.estimated_tokens_used,
+                'tokens_available': self.max_tokens_available,
+                'context_usage_percent': usage_percent,
+                'blocked': True,
+                'reason': f'Context window at {usage_percent:.1f}% - approaching limit'
+            }
+        
+        # Estimate tokens for this message
+        message_tokens = self._estimate_tokens(user_message)
+        
+        # Check if single message would exceed limit
+        if self.estimated_tokens_used + message_tokens > CONTEXT_WINDOW_TOKENS:
+            return {
+                'success': False,
+                'response': None,
+                'tokens_used': self.estimated_tokens_used,
+                'tokens_available': self.max_tokens_available,
+                'context_usage_percent': usage_percent,
+                'blocked': True,
+                'reason': f'Message too long ({message_tokens} tokens) for remaining context'
+            }
+        
+        spinner = Spinner("Gemini is thinking")
+        spinner.start()
+        
+        try:
+            # Send message using native chat session
+            response = self.chat_session.send_message(user_message)
+            response_text = response.text
+            
+            # Update token tracking
+            self.estimated_tokens_used += message_tokens
+            response_tokens = self._estimate_tokens(response_text)
+            self.estimated_tokens_used += response_tokens
+            
+            return {
+                'success': True,
+                'response': response_text,
+                'tokens_used': self.estimated_tokens_used,
+                'tokens_available': self.max_tokens_available,
+                'context_usage_percent': self._get_context_usage_percent(),
+                'blocked': False,
+                'reason': None
+            }
+            
+        except Exception as e:
+            return {
+                'success': False,
+                'response': None,
+                'tokens_used': self.estimated_tokens_used,
+                'tokens_available': self.max_tokens_available,
+                'context_usage_percent': usage_percent,
+                'blocked': False,
+                'reason': f'API Error: {str(e)}'
+            }
+        finally:
+            spinner.stop()
+    
+    def reset(self):
+        """Clear the chat session and start fresh."""
+        self.chat_session = client.chats.create(
+            model=MODEL,
+            config=chat_config
+        )
+        self.estimated_tokens_used = self._estimate_tokens(self.system_prompt)
+        return "✓ Chat session reset"
+    
+    def get_status(self):
+        """Get current session status."""
+        return {
+            'tokens_used': self.estimated_tokens_used,
+            'tokens_available': self.max_tokens_available,
+            'context_usage_percent': self._get_context_usage_percent(),
+            'is_full': self._is_context_full(),
+            'model': MODEL
+        }
 
-def clear_chat_history():
-    """Clear the persistent chat history."""
-    global chat_history
-    chat_history = []
-    print("✓ Chat history cleared")
+# ═══════════════════════════════════════════════════════════════════════════
+# Interactive CLI
+# ═══════════════════════════════════════════════════════════════════════════
 
-def get_chat_history():
-    """Get the current chat history."""
-    return chat_history
-
-# Example usage:
 if __name__ == "__main__":
-    print("=" * 70)
-    print("  Interactive Chat with Persistent Context")
-    print("=" * 70)
+    print("=" * 80)
+    print("  Gemini Chat Session with Context Management")
+    print("=" * 80)
     print("Commands:")
-    print("  'exit' or 'quit' - End the conversation")
-    print("  'clear' - Clear chat history and start fresh")
-    print("  'history' - Show full conversation history")
-    print("=" * 70)
+    print("  'exit' or 'quit'  - End the conversation")
+    print("  'reset'           - Clear session and start fresh")
+    print("  'status'          - Show token usage and context status")
+    print("=" * 80)
+    print()
+    
+    # Create a persistent session
+    session = ChatSession()
     print()
     
     while True:
@@ -115,41 +206,46 @@ if __name__ == "__main__":
             # Get user input
             user_input = input("You: ").strip()
             
-            # Check for special commands
+            # Handle special commands
             if user_input.lower() in ['exit', 'quit']:
                 print("\nGoodbye!")
                 break
             
-            if user_input.lower() == 'clear':
-                clear_chat_history()
-                print("Chat history cleared. Starting fresh.\n")
+            if user_input.lower() == 'reset':
+                print(session.reset())
+                print("Ready for new conversation.\n")
                 continue
             
-            if user_input.lower() == 'history':
-                if not chat_history:
-                    print("No conversation history yet.\n")
-                else:
-                    print("\n" + "=" * 70)
-                    print("  Conversation History")
-                    print("=" * 70)
-                    for sender, msg in chat_history:
-                        # Show first 200 chars for readability
-                        display_msg = msg[:200] + "..." if len(msg) > 200 else msg
-                        print(f"{sender}: {display_msg}")
-                    print("=" * 70 + "\n")
+            if user_input.lower() == 'status':
+                status = session.get_status()
+                print(f"\n╭─ Context Status")
+                print(f"├─ Model: {status['model']}")
+                print(f"├─ Tokens Used: {status['tokens_used']:,} / {status['tokens_available']:,}")
+                print(f"├─ Usage: {status['context_usage_percent']:.1f}%")
+                print(f"└─ Status: {'⚠ FULL (approaching limit)' if status['is_full'] else '✓ Available'}")
+                print()
                 continue
             
             # Skip empty input
             if not user_input:
                 continue
             
-            # Send message and get response with persistent context
-            response, history = chat(user_input)
-            print(f"\nGemini: {response}\n")
+            # Send message with context checks
+            result = session.send_message(user_input)
             
+            if result['blocked']:
+                print(f"\n❌ Message Blocked: {result['reason']}")
+                print(f"   Context at {result['context_usage_percent']:.1f}%")
+                print("   Use 'reset' to start a new conversation.\n")
+            elif result['success']:
+                print(f"\nGemini: {result['response']}\n")
+                print(f"[Context: {result['context_usage_percent']:.1f}% • " +
+                      f"{result['tokens_used']:,} / {result['tokens_available']:,} tokens]\n")
+            else:
+                print(f"\n⚠ Error: {result['reason']}\n")
+        
         except KeyboardInterrupt:
             print("\n\nInterrupted. Goodbye!")
             break
         except Exception as e:
-            print(f"\nError: {e}")
-            print("Please try again.\n")
+            print(f"\n❌ Unexpected error: {e}\n")
