@@ -16,7 +16,7 @@ services:
       - ./webpage.py:/app/webpage.py
       - ./models.py:/app/models.py
       - ./prompt.py:/app/prompt.py
-      - ./prompt.txt:/app/prompt.txt
+      - ./prompts/:/app/prompts/
       - ./templates/:/app/templates/
       - ./static/:/app/static/
       - ./data:/app/data

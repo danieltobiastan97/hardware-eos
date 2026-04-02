@@ -39,12 +39,12 @@ class Spinner:
         sys.stdout.flush()
 
 # load the API keys
-def keys_and_prompt_setup():
-    with open('keys.json', 'r') as file:
+def keys_and_prompt_setup(path='keys.json', prompt_path='prompts/prompt.txt'):
+    with open(path, 'r') as file:
         keys = json.load(file)
 
     # load the prompt from a different text file
-    with open('prompt.txt', 'r') as pmt_file:
+    with open(prompt_path, 'r') as pmt_file:
         instruct = pmt_file.read()
     return keys, instruct
 
@@ -62,6 +62,19 @@ def client_setup(keys): # need to include some try except error handling here
     temperature=0.0, 
     response_mime_type="application/json", 
 )
+    return client, config
+
+def chat_client_setup(keys):
+    client = genai.Client(api_key=keys['GEMINI_API_KEY'])
+    print('Client successfully established.')
+    thinking_setup = types.ThinkingConfig(
+        thinking_level="low"  # Options: "minimal", "low", "medium", "high"
+)
+    # Set up the google search tool for the client.
+    scraper_client = types.Tool(google_search=types.GoogleSearch())
+    config = types.GenerateContentConfig(
+    thinking_config=thinking_setup,
+    tools=[scraper_client])
     return client, config
 
 async def process_line(string, client, config, instruct):
