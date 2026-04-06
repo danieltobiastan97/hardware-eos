@@ -78,7 +78,7 @@ Upload a spreadsheet, select rows, trigger the AI pipeline, and get structured E
 ### 1. Clone the repository
 
 ```bash
-git clone <your-repo-url>
+git clone https://github.com/danieltobiastan97/hardware-eos.git
 cd hardware-eos
 ```
 
