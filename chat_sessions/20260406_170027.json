@@ -1,0 +1,40 @@
+{
+  "session_id": "20260406_170027",
+  "backend": "gemini",
+  "model": "gemma4:e2b",
+  "created": "2026-04-06T17:00:34.972943",
+  "history": [
+    {
+      "role": "user",
+      "content": "What are the oldest hardware products in the database?"
+    },
+    {
+      "role": "assistant",
+      "content": "The oldest hardware products in the database are:\n\n*   **Cerebus**: This product reached its End-of-Support (EOS) on August 19, 2007."
+    },
+    {
+      "role": "user",
+      "content": "When did the oldest one reach end of support?"
+    },
+    {
+      "role": "assistant",
+      "content": "The oldest hardware product, Cerebus, reached its End-of-Support (EOS) on August 19, 2007."
+    },
+    {
+      "role": "user",
+      "content": "What support tiers did it have?"
+    },
+    {
+      "role": "assistant",
+      "content": "Cerebus had one support tier: Standard Support, which ended on August 19, 2007."
+    },
+    {
+      "role": "user",
+      "content": "Can you summarize what we discussed about those old products?"
+    },
+    {
+      "role": "assistant",
+      "content": "We discussed the oldest hardware product in the database, Cerebus. It reached its End-of-Support (EOS) on August 19, 2007, and had one support tier: Standard Support."
+    }
+  ]
+}

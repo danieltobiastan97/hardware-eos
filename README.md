@@ -165,25 +165,47 @@ This is useful for testing the full workflow before uploading your own asset dat
 ## Terminal Interfaces
 
 ### Unified Chat (Recommended)
-Choose between **Gemini** or **Ollama** from a single interface:
+Choose between **Gemini** or **Ollama** with full conversation awareness:
 
 ```bash
 python unified_chat.py
 ```
 
-Features:
+**Key Features:**
+- **Conversation Awareness** — Within a single session, maintains context across multiple turns and remembers all previous messages
+- **Independent Sessions** — Each new run starts fresh - no memory of previous chats (clean slate each time)
 - **Backend Selection** — Choose Gemini (cloud, web search) or Ollama (local, offline)
 - **RAG Database Context** — Automatically retrieves relevant asset data before answering
-- **Toggle RAG On/Off** — Use `rag on` or `rag off` commands to control context retrieval
-- **Multi-Turn Conversations** — Maintains session state across multiple messages
-- **Status Tracking** — View token usage and session information
+- **Toggle RAG On/Off** — Use `rag on`/`rag off` to control context retrieval
+- **Token Tracking** — View real-time token usage and context window status
 
-Interactive commands:
+**Interactive Commands:**
 - `exit` or `quit` — End conversation
-- `reset` — Clear session and start fresh
-- `status` — Show token usage and context status
+- `history` — View conversation transcript from current session
+- `clear` — Clear everything and start fresh within this session
+- `status` — Show session stats, token usage, message count
 - `schema` — Display database schema
 - `rag on/off` — Toggle database context retrieval
+
+**Multi-Turn Conversation Example (In Single Session):**
+```
+You: What are the oldest hardware products?
+[AI responds with Cerebus, Intel Core i9, etc.]
+
+You: When did the oldest one reach end of support?
+[AI remembers Cerebus from this session and answers correctly!]
+
+You: What support tiers did it have?
+[AI continues context-aware conversation within this session]
+
+[Close/exit program] → Next time you run unified_chat.py, it's a brand new chat
+```
+
+**Demo - Session Awareness:**
+```bash
+python demo_session_awareness.py
+```
+Shows multi-turn conversations with context awareness and session persistence.
 
 ### Gemini Chat (Stateful Conversation)
 

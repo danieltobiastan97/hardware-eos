@@ -6,10 +6,12 @@ Combines RAG database retrieval with your choice of backend model
 import json
 import requests
 import warnings
+import os
 from typing import Optional, Dict, List
 from datetime import datetime, date
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
+from pathlib import Path
 
 # Suppress warnings
 warnings.filterwarnings("ignore", message=".*thought_signature.*")
@@ -50,6 +52,10 @@ Highlight important dates and support status information."""
 db_engine = None
 db_session = None
 db_schema = None
+
+# Chat history storage
+CHAT_HISTORY_DIR = "./chat_sessions"
+Path(CHAT_HISTORY_DIR).mkdir(exist_ok=True)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Database Functions
@@ -261,10 +267,10 @@ def query_ollama(user_input: str, context: str = "", model: str = OLLAMA_DEFAULT
 class UnifiedChatSession:
     """
     Unified chat session that works with either Ollama or Gemini backend.
-    Includes RAG database retrieval for both backends.
+    Includes RAG database retrieval, conversation history, and persistent storage.
     """
     
-    def __init__(self, backend: str = "gemini", model: Optional[str] = None, system_prompt: Optional[str] = None):
+    def __init__(self, backend: str = "gemini", model: Optional[str] = None, system_prompt: Optional[str] = None, session_id: Optional[str] = None):
         """
         Initialize chat session with specified backend.
         
@@ -272,6 +278,7 @@ class UnifiedChatSession:
             backend: "ollama" or "gemini"
             model: Specific model to use (optional)
             system_prompt: Optional custom system prompt
+            session_id: Optional session ID for persistence (auto-generated if not provided)
         """
         self.backend = backend.lower()
         self.model = model
@@ -279,6 +286,14 @@ class UnifiedChatSession:
         self.gemini_client = None
         self.gemini_chat = None
         self.ollama_model = OLLAMA_DEFAULT_MODEL
+        
+        # Conversation history tracking
+        self.conversation_history: List[Dict[str, str]] = []  # List of {"role": "user"|"assistant", "content": str}
+        self.session_id = session_id or datetime.now().strftime("%Y%m%d_%H%M%S")
+        self.session_file = f"{CHAT_HISTORY_DIR}/{self.session_id}.json"
+        
+        # Load previous history if session exists
+        self._load_history()
         
         if self.backend == "gemini":
             self._init_gemini()
@@ -338,9 +353,46 @@ class UnifiedChatSession:
         
         print(f"✓ Using model: {self.ollama_model}")
     
+    def _load_history(self):
+        """Load conversation history from disk if it exists."""
+        if os.path.exists(self.session_file):
+            try:
+                with open(self.session_file, 'r') as f:
+                    data = json.load(f)
+                    self.conversation_history = data.get('history', [])
+                    if self.conversation_history:
+                        print(f"📜 Loaded {len(self.conversation_history)} previous message(s)")
+            except Exception as e:
+                print(f"⚠ Could not load history: {e}")
+    
+    def _save_history(self):
+        """Save conversation history to disk."""
+        try:
+            with open(self.session_file, 'w') as f:
+                json.dump({
+                    'session_id': self.session_id,
+                    'backend': self.backend,
+                    'model': self.model or self.ollama_model,
+                    'created': datetime.now().isoformat(),
+                    'history': self.conversation_history
+                }, f, indent=2)
+        except Exception as e:
+            print(f"⚠ Could not save history: {e}")
+    
+    def _build_conversation_context(self) -> str:
+        """Build conversation context from history for Ollama."""
+        if not self.conversation_history:
+            return ""
+        
+        context = "Previous conversation:\n"
+        for msg in self.conversation_history[-6:]:  # Last 6 messages for context
+            role = "User" if msg['role'] == 'user' else "Assistant"
+            context += f"{role}: {msg['content']}\n"
+        return context
+    
     def send_message(self, user_message: str, use_rag: bool = True) -> Dict:
         """
-        Send a message and get a response.
+        Send a message and get a response with conversation awareness.
         
         Args:
             user_message: The user's input
@@ -349,28 +401,58 @@ class UnifiedChatSession:
         Returns:
             dict with 'success', 'response', and metadata
         """
-        # Step 1: Optionally retrieve database context (RAG)
+        # Step 1: Add user message to history
+        self.conversation_history.append({
+            "role": "user",
+            "content": user_message
+        })
+        
+        # Step 2: Optionally retrieve database context (RAG)
         context = ""
         if use_rag:
             context = retrieve_relevant_products(user_message, limit=10)
         
-        # Step 2: Send to backend
+        # Step 3: Send to backend
         if self.backend == "gemini":
-            return self._send_gemini(user_message, context)
+            result = self._send_gemini(user_message, context)
         else:
-            return self._send_ollama(user_message, context)
+            result = self._send_ollama(user_message, context)
+        
+        # Step 4: Add assistant response to history if successful
+        if result['success'] and result['response']:
+            self.conversation_history.append({
+                "role": "assistant",
+                "content": result['response']
+            })
+        
+        # Step 5: Save history
+        self._save_history()
+        
+        # Add history info to result
+        result['history_length'] = len(self.conversation_history)
+        
+        return result
     
     def _send_gemini(self, user_message: str, context: str) -> Dict:
-        """Send message to Gemini backend."""
+        """Send message to Gemini backend with conversation awareness."""
         spinner = Spinner("Gemini is thinking")
         spinner.start()
         
         try:
             # Build message with context if available
+            message_parts = []
+            
             if context and context != "No matching products found in the database.":
-                full_message = f"Context from database:\n{context}\n\nUser question: {user_message}"
-            else:
-                full_message = user_message
+                message_parts.append(f"Context from database:\n{context}")
+            
+            # Add conversation context if we have history
+            if len(self.conversation_history) > 1:  # More than just the current user message
+                conv_context = self._build_conversation_context()
+                if conv_context:
+                    message_parts.append(conv_context)
+            
+            message_parts.append(f"Current question: {user_message}")
+            full_message = "\n\n".join(message_parts)
             
             response = self.gemini_chat.send_message(full_message)
             response_text = response.text
@@ -399,8 +481,17 @@ class UnifiedChatSession:
             spinner.stop()
     
     def _send_ollama(self, user_message: str, context: str) -> Dict:
-        """Send message to Ollama backend."""
-        result = query_ollama(user_message, context=context, model=self.ollama_model)
+        """Send message to Ollama backend with conversation awareness."""
+        # Build full context including conversation history
+        full_context = context
+        
+        # Add conversation history if available
+        if len(self.conversation_history) > 1:  # More than just current user message
+            conv_context = self._build_conversation_context()
+            if conv_context:
+                full_context = (conv_context + "\n\n" + context) if context else conv_context
+        
+        result = query_ollama(user_message, context=full_context, model=self.ollama_model)
         result['backend'] = 'Ollama'
         result['context_used'] = bool(context)
         return result
@@ -419,11 +510,36 @@ class UnifiedChatSession:
         
         return status
     
+    def get_history(self) -> List[Dict[str, str]]:
+        """Get full conversation history."""
+        return self.conversation_history
+    
+    def get_history_text(self) -> str:
+        """Get formatted conversation history for display."""
+        if not self.conversation_history:
+            return "No messages yet."
+        
+        text = ""
+        for i, msg in enumerate(self.conversation_history, 1):
+            role = "You" if msg['role'] == 'user' else "AI"
+            preview = msg['content'][:100] + "..." if len(msg['content']) > 100 else msg['content']
+            text += f"{i}. [{role}] {preview}\n"
+        return text
+    
+    def clear_history(self):
+        """Clear conversation history but keep the session file."""
+        self.conversation_history = []
+        self._save_history()
+        return "✓ Conversation history cleared"
+    
     def reset(self):
         """Clear session and start fresh."""
+        self.conversation_history = []
+        self._save_history()
+        
         if self.backend == "gemini":
             self._init_gemini()
-            return "✓ Gemini session reset"
+            return "✓ Gemini session reset with clear history"
         else:
             return "✓ Ollama session ready for new conversation"
 
@@ -432,22 +548,44 @@ class UnifiedChatSession:
 # Interactive CLI
 # ═══════════════════════════════════════════════════════════════════════════
 
+def list_sessions() -> List[str]:
+    """List all available chat session files."""
+    try:
+        files = Path(CHAT_HISTORY_DIR).glob("*.json")
+        sessions = sorted([f.stem for f in files], reverse=True)
+        return sessions
+    except:
+        return []
+
+
+def load_session(session_id: str, backend: str, model: Optional[str] = None) -> Optional[UnifiedChatSession]:
+    """Load a previous chat session."""
+    try:
+        session = UnifiedChatSession(backend=backend, model=model, session_id=session_id)
+        return session
+    except Exception as e:
+        print(f"❌ Failed to load session: {e}")
+        return None
+
+
 def interactive_chat(backend: str, model: Optional[str] = None):
-    """Start interactive chat with chosen backend."""
+    """Start fresh interactive chat session with chosen backend."""
     print("\n" + "=" * 80)
     print(f"  Unified Chat with {backend.upper()}")
     print("=" * 80)
     print("Commands:")
     print("  'exit' or 'quit'  - End the conversation")
-    print("  'reset'           - Clear session and start fresh")
-    print("  'status'          - Show session status")
+    print("  'history'         - Show conversation history")
+    print("  'clear'           - Clear conversation history and restart")
+    print("  'status'          - Show session status & token usage")
     print("  'schema'          - Show database schema")
     print("  'rag on/off'      - Toggle database context retrieval")
     print("=" * 80 + "\n")
     
-    # Create session
+    # Create fresh session
     try:
         session = UnifiedChatSession(backend=backend, model=model)
+        print(f"📝 New session started. Session ID: {session.session_id}\n")
     except Exception as e:
         print(f"❌ Failed to initialize {backend}: {e}")
         return
@@ -463,16 +601,26 @@ def interactive_chat(backend: str, model: Optional[str] = None):
             
             # Handle commands
             if user_input.lower() in ['exit', 'quit']:
-                print("\nGoodbye!")
+                print(f"\n✓ Conversation saved to: {session.session_file}")
+                print("Goodbye!")
                 break
             
-            if user_input.lower() == 'reset':
-                print(session.reset())
+            if user_input.lower() == 'history':
+                print("\n📋 Conversation History:")
+                print(session.get_history_text())
+                print()
+                continue
+            
+            if user_input.lower() == 'clear':
+                print(session.clear_history())
+                print()
                 continue
             
             if user_input.lower() == 'status':
                 status = session.get_status()
                 print(f"\n📊 Status:")
+                print(f"   Session ID: {session.session_id}")
+                print(f"   Messages: {len(session.conversation_history)}")
                 for key, value in status.items():
                     print(f"   {key}: {value}")
                 print()
@@ -492,18 +640,21 @@ def interactive_chat(backend: str, model: Optional[str] = None):
                 print("✓ RAG disabled (direct queries only)\n")
                 continue
             
-            # Send message
+            # Send message with conversation awareness
             result = session.send_message(user_input, use_rag=use_rag)
             
             if result['success']:
                 print(f"\n{result['backend']}: {result['response']}\n")
                 if result.get('context_used'):
-                    print("[Database context was used]\n")
+                    print(f"[Context used • Message {result['history_length']}]\n")
+                else:
+                    print(f"[Message {result['history_length']}]\n")
             else:
                 print(f"\n❌ Error: {result['error']}\n")
         
         except KeyboardInterrupt:
-            print("\n\nInterrupted. Goodbye!")
+            print(f"\n\n✓ Conversation saved")
+            print("Interrupted. Goodbye!")
             break
         except Exception as e:
             print(f"\n❌ Unexpected error: {e}\n")
@@ -515,7 +666,7 @@ def interactive_chat(backend: str, model: Optional[str] = None):
 
 if __name__ == "__main__":
     print("\n" + "=" * 80)
-    print(" Unified Chat - Choose Your Backend")
+    print(" Unified Chat - Conversational AI with RAG")
     print("=" * 80 + "\n")
     
     # Initialize database
@@ -523,8 +674,8 @@ if __name__ == "__main__":
         print("\n❌ Database initialization failed. Exiting.")
         exit(1)
     
-    # Choose backend
-    print("Available backends:")
+    # Choose backend for new session
+    print("🤖 Available backends:")
     print("  1. Gemini (Cloud-based, with web search)")
     print("  2. Ollama (Local inference, offline mode)")
     print()
@@ -541,5 +692,5 @@ if __name__ == "__main__":
     
     print()
     
-    # Start interactive chat
+    # Start a fresh interactive chat session
     interactive_chat(backend)
