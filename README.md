@@ -1,8 +1,8 @@
 # Asset Intelligence Tracker
 
-A comprehensive asset lifecycle management system combining **Google Gemini AI** with real-time search, local **Ollama** inference with RAG (Retrieval-Augmented Generation), and context-aware conversation management. Features include:
+A comprehensive asset lifecycle management system combining **Google Gemini AI** with real-time search and context-aware conversation management. Features include:
 - Web application for bulk EOS/EOL lookups via Gemini with Google Search grounding
-- Natural language database queries via local Ollama model (no external API calls)
+- Natural language database queries via Gemini with RAG (Retrieval-Augmented Generation)
 - Multi-turn conversation support with automatic token tracking and context management
 
 Upload a spreadsheet, select rows, trigger the AI pipeline, and get structured EOS data with confidence scores and source URLs — all streamed live to your browser. Or query your cached product database conversationally in plain English.
@@ -13,10 +13,9 @@ Upload a spreadsheet, select rows, trigger the AI pipeline, and get structured E
 
 | Component | Status | Access |
 |---|---|---|
-| Web Pipeline (Gemini AI) | ✓ Production | Web UI (`http://localhost:8080`) |
+| Web Pipeline (Gemini AI) | ✓ Production | Web UI (`http://localhost:3000`) |
 | Database Models (SQLAlchemy) | ✓ Production | Integrated with web pipeline |
-| Ollama RAG Mode | 🔨 In Development | Terminal: `python dbchat.py` |
-| ChatSession Context | 🔨 In Development | Python import + terminal tests |
+| Chat Interface (Gemini RAG) | ✓ Production | Terminal: `python unified_chat.py` |
 
 ---
 
@@ -32,22 +31,14 @@ Upload a spreadsheet, select rows, trigger the AI pipeline, and get structured E
 - **Row selection** — cherry-pick which rows to process
 - **Session authentication** — simple username/password login protecting all routes
 
-### Database & RAG (Ollama Local Model) — **IN DEVELOPMENT**
-> Ollama components are currently in active development and integration with the web frontend. Terminal-only access available on development server.
-
-- **Natural language queries** — ask questions about products without SQL knowledge
-- **Local inference** — Ollama model runs locally on `localhost:11434` (no external API dependencies)
-- **Smart filtering** — automatically detects intent (hardware/software/dates) and retrieves relevant data
-- **Context-aware answers** — LLM responds based only on database context, never making up data
-- **Efficient retrieval** — max 10 products per query to optimize token usage
-
-### Multi-Turn Conversations (ChatSession) — **IN DEVELOPMENT**
-> ChatSession is currently in active development and integration with the web frontend. Terminal-only access available on development server.
-
-- **Context preservation** — maintain conversation state across multiple turns with automatic history tracking
-- **Token management** — automatic counting and limit enforcement to prevent blocking
-- **Session isolation** — independent sessions prevent state pollution between conversations
-- **Graceful overflow handling** — blocks new messages when token limit reached instead of truncating context
+### Chat Interface (Gemini RAG Mode)
+- **Conversational queries** — ask questions about EOS/EOL products in natural language
+- **Database retrieval** — automatically fetches relevant product data from cache
+- **Cloud-based inference** — uses Google Gemini (`gemini-2.5-flash`) for fast, accurate responses
+- **Multi-turn awareness** — maintains conversation context across multiple messages
+- **Session persistence** — conversation history saved to disk automatically
+- **RAG toggle** — enable/disable database context retrieval per query
+- **Token tracking** — monitors Gemini API token usage in real-time
 
 ---
 
@@ -56,8 +47,7 @@ Upload a spreadsheet, select rows, trigger the AI pipeline, and get structured E
 | Layer | Technology |
 |---|---|
 | Backend | Python 3.13, Flask 3.1, Gunicorn |
-| AI (Web) | Google Gemini (`gemini-3-flash-preview`) via `google-genai` |
-| AI (Local) | Ollama (`gemma4:e2b`) for RAG-based database queries |
+| AI (Web & Chat) | Google Gemini (`gemini-2.5-flash`) via `google-genai` SDK |
 | ORM & Database | SQLAlchemy, SQLite (`./data/asset_cache.db`) |
 | Data Processing | pandas, openpyxl, numpy |
 | Frontend | Vanilla JS, custom CSS (dark theme, DM Mono font) |

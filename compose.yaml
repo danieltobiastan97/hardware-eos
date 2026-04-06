@@ -1,9 +1,9 @@
 services:
-  hardware-eos:
+  web:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: hardware-eos
+    container_name: hardware-eos-web
     ports:
       - "3000:5000"
     environment:
@@ -20,4 +20,5 @@ services:
       - ./templates/:/app/templates/
       - ./static/:/app/static/
       - ./data:/app/data
+      - ./chat_sessions:/app/chat_sessions
     restart: unless-stopped

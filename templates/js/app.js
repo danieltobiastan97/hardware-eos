@@ -45,6 +45,11 @@ const swTableMeta = document.getElementById('swTableMeta');
 const apiKeyToast = document.getElementById('apiKeyToast');
 const liveDateTime = document.getElementById('liveDateTime');
 
+// AI Chat elements
+const aiChatBtn = document.getElementById('aiChatBtn');
+const aiChatModal = document.getElementById('aiChatModal');
+const aiChatClose = document.getElementById('aiChatClose');
+
 // ─────────────────────────────────────────────────────────────────────────────────
 // APPLICATION STATE
 // ─────────────────────────────────────────────────────────────────────────────────
@@ -1333,3 +1338,56 @@ dropZone.addEventListener('drop', e => {
 btnResetCompact.addEventListener('click', reset);
 
 btnTriggerPipeline.addEventListener('click', () => startPipelineRun(false));
+
+// ─────────────────────────────────────────────────────────────────────────────────
+// AI CHAT BUTTON & MODAL
+// ─────────────────────────────────────────────────────────────────────────────────
+
+// Wait for DOM to be ready before setting up AI chat listeners
+function initAIChat() {
+  if (!aiChatBtn || !aiChatModal || !aiChatClose) {
+    console.warn('AI Chat elements not found');
+    return;
+  }
+
+  // Restore modal state on page load
+  const isOpen = localStorage.getItem('aiChatOpen') === 'true';
+  if (isOpen) {
+    aiChatModal.classList.add('active');
+  }
+
+  // Toggle AI chat modal
+  aiChatBtn.addEventListener('click', (e) => {
+    e.preventDefault();
+    const isActive = aiChatModal.classList.contains('active');
+    if (isActive) {
+      aiChatModal.classList.remove('active');
+      localStorage.setItem('aiChatOpen', 'false');
+    } else {
+      aiChatModal.classList.add('active');
+      localStorage.setItem('aiChatOpen', 'true');
+    }
+  });
+
+  // Close button
+  aiChatClose.addEventListener('click', (e) => {
+    e.preventDefault();
+    aiChatModal.classList.remove('active');
+    localStorage.setItem('aiChatOpen', 'false');
+  });
+
+  // Close modal when clicking outside the container
+  aiChatModal.addEventListener('click', (e) => {
+    if (e.target === aiChatModal) {
+      aiChatModal.classList.remove('active');
+      localStorage.setItem('aiChatOpen', 'false');
+    }
+  });
+}
+
+// Initialize AI chat when script loads
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', initAIChat);
+} else {
+  initAIChat();
+}

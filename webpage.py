@@ -18,10 +18,22 @@ from classes import Helper, Processing
 # Import database models
 from models import init_database, ProductEOSRepo, parse_date
 
+# Import AI chat backend
+from unified_chat import GeminiChatSession
+
 app = Flask(__name__)
 app.secret_key = os.getenv("APP_SECRET_KEY", "change-this-secret-key")
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+@app.after_request
+def add_no_cache_headers(response):
+    """Disable browser caching for dynamic pages and static assets during active development."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = os.getenv("APP_ADMIN_PASSWORD", "changeme")
@@ -35,6 +47,9 @@ product_repo = ProductEOSRepo(db_session)
 # Results are keyed by item name so re-running skips already-processed items
 _last_upload = {"hw_list": [], "sw_list": []}
 _results_cache = {}   # name -> result dict
+
+# AI chat sessions keyed by Flask session user (one chat session per logged-in user)
+_chat_sessions = {}   # session_user -> GeminiChatSession
 
 # NTP time caching
 _ntp_time_cache = {"timestamp": None, "cached_at": None}
@@ -735,6 +750,82 @@ def get_time():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AI Chat API routes
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_chat_session() -> GeminiChatSession:
+    """Return the GeminiChatSession for the logged-in user, creating one if needed."""
+    user_key = session.get("user", "anon")
+    if user_key not in _chat_sessions:
+        _chat_sessions[user_key] = GeminiChatSession(
+            session_id=f"web_{user_key}",
+            db_session_override=db_session
+        )
+    return _chat_sessions[user_key]
+
+
+@app.route('/chat/send', methods=['POST'])
+@login_required
+def chat_send():
+    """Send a message to the AI and return the response."""
+    data = request.get_json(silent=True) or {}
+    message = str(data.get('message', '')).strip()
+    if not message:
+        return jsonify({'error': 'No message provided.'}), 400
+
+    try:
+        chat = _get_chat_session()
+        result = chat.send_message(message, use_rag=True)
+        if result['success']:
+            return jsonify({
+                'response': result['response'],
+                'session_id': chat.session_id,
+                'tokens_used': result.get('tokens_used', 0)
+            })
+        else:
+            return jsonify({'error': result.get('error', 'AI request failed.')}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/chat/history', methods=['GET'])
+@login_required
+def chat_history():
+    """Return the conversation history for the current user."""
+    chat = _get_chat_session()
+    return jsonify({'history': chat.get_history(), 'session_id': chat.session_id})
+
+
+@app.route('/chat/status', methods=['GET'])
+@login_required
+def chat_status():
+    """Return database initialisation status for the chat UI indicator."""
+    try:
+        from models import ProductEOS
+        count = db_session.query(ProductEOS).count()
+        return jsonify({'db_ok': True, 'product_count': count})
+    except Exception as e:
+        return jsonify({'db_ok': False, 'product_count': 0, 'error': str(e)})
+
+
+@app.route('/chat/clear', methods=['POST'])
+@login_required
+def chat_clear():
+    """Clear the current user's chat history and start a fresh session."""
+    user_key = session.get("user", "anon")
+    if user_key in _chat_sessions:
+        _chat_sessions[user_key].clear_history()
+        # Re-initialize so Gemini gets a fresh chat object
+        _chat_sessions[user_key] = GeminiChatSession(
+            session_id=f"web_{user_key}_new",
+            db_session_override=db_session
+        )
+    return jsonify({'status': 'cleared'})
 
 
 if __name__ == '__main__':

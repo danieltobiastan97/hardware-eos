@@ -1,6 +1,6 @@
 """
-Unified Chat Interface - Choose between Ollama and Gemini
-Combines RAG database retrieval with your choice of backend model
+Gemini Chat Interface with RAG
+Combines RAG database retrieval with Google Gemini backend
 """
 
 import json
@@ -9,7 +9,7 @@ import warnings
 import os
 from typing import Optional, Dict, List
 from datetime import datetime, date
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, text, or_, func
 from sqlalchemy.orm import sessionmaker
 from pathlib import Path
 
@@ -28,25 +28,10 @@ from prompt import keys_and_prompt_setup, client_setup, Spinner, chat_client_set
 DATABASE_URL = "sqlite:///./data/asset_cache.db"
 DB_PATH = "./data/asset_cache.db"
 
-# Ollama Configuration
-OLLAMA_API_BASE = "http://localhost:11434"
-OLLAMA_API_ENDPOINT = f"{OLLAMA_API_BASE}/api/generate"
-OLLAMA_MODELS_ENDPOINT = f"{OLLAMA_API_BASE}/api/tags"
-OLLAMA_DEFAULT_MODEL = "gemma4:e2b"
-
-# Gemini Configuration (loaded at runtime)
+# Gemini Configuration
 GEMINI_MODEL = "gemini-2.5-flash"
 GEMINI_CONTEXT_WINDOW = 1_000_000
 GEMINI_SAFETY_THRESHOLD = 0.85
-
-# System Prompts
-OLLAMA_SYSTEM_PROMPT = """You are a helpful AI assistant that answers questions about hardware and software End-of-Life (EOS) information.
-
-You will be provided with relevant product data from the database. Answer the user's question based ONLY on the data provided below.
-
-If the data doesn't contain the answer, clearly state that the information is not available.
-Be concise and clear in your responses.
-Highlight important dates and support status information."""
 
 # Database globals
 db_engine = None
@@ -112,9 +97,10 @@ Table: support_tier (related to product_eos via product_id)
 """
 
 
-def retrieve_relevant_products(user_query: str, limit: int = 10) -> str:
+def retrieve_relevant_products(user_query: str, limit: int = 10, session_override=None) -> str:
     """Retrieve relevant products from database based on user query keywords."""
-    if not db_session:
+    _session = session_override or db_session
+    if not _session:
         return "Database not initialized"
     
     print(f"📄 Retrieving relevant data...", end=" ", flush=True)
@@ -122,28 +108,51 @@ def retrieve_relevant_products(user_query: str, limit: int = 10) -> str:
     try:
         query_lower = user_query.lower()
         
-        # Detect what user is looking for
+        # ── 1. Name-based search first ─────────────────────────────────────
+        # Extract meaningful tokens (>2 chars, skip common stop words)
+        _STOP = {'for', 'the', 'and', 'what', 'when', 'does', 'is', 'are',
+                 'will', 'has', 'have', 'eol', 'eos', 'end', 'life', 'of',
+                 'support', 'date', 'about', 'can', 'you', 'tell', 'me'}
+        tokens = [t for t in query_lower.split() if len(t) > 2 and t not in _STOP]
+        
+        name_results = []
+        if tokens:
+            name_filters = [func.lower(ProductEOS.name).contains(token) for token in tokens]
+            name_results = (
+                _session.query(ProductEOS)
+                .filter(or_(*name_filters))
+                .order_by(ProductEOS.eos_date.asc())
+                .limit(limit)
+                .all()
+            )
+        
+        # ── 2. Fall back to type/recency filtered list ──────────────────────
         is_hardware = any(word in query_lower for word in ['hardware', 'cpu', 'processor', 'memory', 'server'])
         is_software = any(word in query_lower for word in ['software', 'windows', 'linux', 'sql', 'os'])
-        is_eol = any(word in query_lower for word in ['end', 'eol', 'support', 'expir'])
         is_recent = any(word in query_lower for word in ['recent', 'latest', 'newest'])
         is_oldest = any(word in query_lower for word in ['oldest', 'first'])
         
-        query = db_session.query(ProductEOS)
-        
+        fallback_query = _session.query(ProductEOS)
         if is_hardware:
-            query = query.filter(ProductEOS.hardware_software == 'Hardware')
+            fallback_query = fallback_query.filter(ProductEOS.hardware_software == 'Hardware')
         elif is_software:
-            query = query.filter(ProductEOS.hardware_software == 'Software')
-        
+            fallback_query = fallback_query.filter(ProductEOS.hardware_software == 'Software')
         if is_oldest:
-            query = query.order_by(ProductEOS.eos_date.asc())
+            fallback_query = fallback_query.order_by(ProductEOS.eos_date.asc())
         elif is_recent:
-            query = query.order_by(ProductEOS.eos_date.desc())
+            fallback_query = fallback_query.order_by(ProductEOS.eos_date.desc())
         else:
-            query = query.order_by(ProductEOS.eos_date.asc())
+            fallback_query = fallback_query.order_by(ProductEOS.eos_date.asc())
+        fallback_results = fallback_query.limit(limit).all()
         
-        results = query.limit(limit).all()
+        # Merge: name matches first, then fill with fallback (deduplicated)
+        seen_ids = {p.id for p in name_results}
+        combined = list(name_results)
+        for p in fallback_results:
+            if p.id not in seen_ids:
+                combined.append(p)
+                seen_ids.add(p.id)
+        results = combined[:limit]
         
         print(f"✓ ({len(results)} products)")
         
@@ -171,121 +180,29 @@ def retrieve_relevant_products(user_query: str, limit: int = 10) -> str:
         return f"Error retrieving data: {str(e)}"
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Ollama Functions
-# ═══════════════════════════════════════════════════════════════════════════
-
-def check_ollama_connection() -> bool:
-    """Check if Ollama server is running."""
-    try:
-        response = requests.get(f"{OLLAMA_API_BASE}/api/status", timeout=3)
-        return response.status_code == 200
-    except:
-        return False
-
-
-def get_available_models() -> list:
-    """Get list of available models from Ollama."""
-    try:
-        response = requests.get(OLLAMA_MODELS_ENDPOINT, timeout=5)
-        if response.status_code == 200:
-            data = response.json()
-            return [model['name'] for model in data.get('models', [])]
-        return []
-    except Exception as e:
-        print(f"⚠ Error fetching models: {e}")
-        return []
-
-
-def query_ollama(user_input: str, context: str = "", model: str = OLLAMA_DEFAULT_MODEL) -> Dict:
-    """Send a query to Ollama and get a response."""
-    print(f"🤖 Querying {model}...", end=" ", flush=True)
-    
-    try:
-        if context:
-            full_prompt = f"{OLLAMA_SYSTEM_PROMPT}\n\nRELEVANT DATA FROM DATABASE:\n{context}\n\nUser Question: {user_input}"
-        else:
-            full_prompt = f"{OLLAMA_SYSTEM_PROMPT}\n\nUser Question: {user_input}"
-        
-        payload = {
-            'model': model,
-            'prompt': full_prompt,
-            'stream': False,
-            'temperature': 0.3,
-            'top_p': 0.9,
-            'top_k': 40,
-            'num_ctx': 4096,
-        }
-        
-        response = requests.post(
-            OLLAMA_API_ENDPOINT,
-            json=payload,
-            timeout=180
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            result_text = data.get('response', '').strip()
-            print("✓")
-            return {
-                'success': True,
-                'response': result_text,
-                'model': model,
-                'error': None
-            }
-        else:
-            print(f"❌ (Status {response.status_code})")
-            return {
-                'success': False,
-                'response': None,
-                'model': model,
-                'error': f"HTTP {response.status_code}"
-            }
-            
-    except requests.Timeout:
-        print("❌ (Timeout)")
-        return {
-            'success': False,
-            'response': None,
-            'model': model,
-            'error': 'Request timed out'
-        }
-    except Exception as e:
-        print(f"❌ ({type(e).__name__})")
-        return {
-            'success': False,
-            'response': None,
-            'model': model,
-            'error': str(e)
-        }
-
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Unified ChatSession Class
 # ═══════════════════════════════════════════════════════════════════════════
 
-class UnifiedChatSession:
+class GeminiChatSession:
     """
-    Unified chat session that works with either Ollama or Gemini backend.
+    Chat session using Google Gemini backend.
     Includes RAG database retrieval, conversation history, and persistent storage.
     """
     
-    def __init__(self, backend: str = "gemini", model: Optional[str] = None, system_prompt: Optional[str] = None, session_id: Optional[str] = None):
+    def __init__(self, session_id: Optional[str] = None, db_session_override=None):
         """
-        Initialize chat session with specified backend.
+        Initialize chat session with Gemini backend.
         
         Args:
-            backend: "ollama" or "gemini"
-            model: Specific model to use (optional)
-            system_prompt: Optional custom system prompt
             session_id: Optional session ID for persistence (auto-generated if not provided)
+            db_session_override: SQLAlchemy session to use for RAG (falls back to module-level session)
         """
-        self.backend = backend.lower()
-        self.model = model
-        self.system_prompt = system_prompt
+        self.backend = "gemini"
+        self._db_session_override = db_session_override
         self.gemini_client = None
         self.gemini_chat = None
-        self.ollama_model = OLLAMA_DEFAULT_MODEL
         
         # Conversation history tracking
         self.conversation_history: List[Dict[str, str]] = []  # List of {"role": "user"|"assistant", "content": str}
@@ -295,12 +212,7 @@ class UnifiedChatSession:
         # Load previous history if session exists
         self._load_history()
         
-        if self.backend == "gemini":
-            self._init_gemini()
-        elif self.backend == "ollama":
-            self._init_ollama()
-        else:
-            raise ValueError(f"Unknown backend: {backend}")
+        self._init_gemini()
     
     def _init_gemini(self):
         """Initialize Gemini backend."""
@@ -311,7 +223,22 @@ class UnifiedChatSession:
             self.gemini_client, _ = chat_client_setup(keys)
             
             scraper_client = types.Tool(google_search=types.GoogleSearch())
-            chat_config = types.GenerateContentConfig(tools=[scraper_client])
+            
+            system_instruction = """You are an IT asset lifecycle advisor. Your sole purpose is to answer questions about hardware and software End-of-Life (EOS) dates, support status, and related lifecycle information.
+
+You will be provided with product data from a database as context. Answer questions based ONLY on this provided data.
+
+CONSTRAINTS:
+- Only discuss EOS, EOL, support dates, and lifecycle information for IT assets
+- If asked about your general capabilities, respond: "I'm here to help with questions about asset End-of-Life and support status information."
+- Do not provide information unrelated to IT asset lifecycle
+- If data is not available, clearly state it and suggest checking vendor documentation
+- Be concise and IT-professional in tone"""
+            
+            chat_config = types.GenerateContentConfig(
+                tools=[scraper_client],
+                system_instruction=system_instruction
+            )
             
             self.gemini_chat = self.gemini_client.chats.create(
                 model=GEMINI_MODEL,
@@ -328,31 +255,7 @@ class UnifiedChatSession:
             print(f"❌ {e}")
             raise
     
-    def _init_ollama(self):
-        """Initialize Ollama backend."""
-        print("🔗 Checking Ollama...", end=" ")
-        if not check_ollama_connection():
-            print("❌ Ollama not found at", OLLAMA_API_BASE)
-            raise ConnectionError("Ollama server not running")
-        print("✓")
-        
-        print("📦 Fetching available models...", end=" ")
-        models = get_available_models()
-        if not models:
-            print("❌ No models found")
-            raise RuntimeError("No Ollama models available")
-        print(f"✓ ({len(models)} models)")
-        
-        if self.model and self.model in models:
-            self.ollama_model = self.model
-        elif self.model:
-            matches = [m for m in models if self.model in m]
-            self.ollama_model = matches[0] if matches else models[0]
-        else:
-            self.ollama_model = models[0] if OLLAMA_DEFAULT_MODEL not in models else OLLAMA_DEFAULT_MODEL
-        
-        print(f"✓ Using model: {self.ollama_model}")
-    
+
     def _load_history(self):
         """Load conversation history from disk if it exists."""
         if os.path.exists(self.session_file):
@@ -372,7 +275,7 @@ class UnifiedChatSession:
                 json.dump({
                     'session_id': self.session_id,
                     'backend': self.backend,
-                    'model': self.model or self.ollama_model,
+                    'model': GEMINI_MODEL,
                     'created': datetime.now().isoformat(),
                     'history': self.conversation_history
                 }, f, indent=2)
@@ -380,12 +283,12 @@ class UnifiedChatSession:
             print(f"⚠ Could not save history: {e}")
     
     def _build_conversation_context(self) -> str:
-        """Build conversation context from history for Ollama."""
+        """Build conversation context from history for multi-turn awareness."""
         if not self.conversation_history:
             return ""
         
         context = "Previous conversation:\n"
-        for msg in self.conversation_history[-6:]:  # Last 6 messages for context
+        for msg in self.conversation_history[:-1]:  # All messages except current for context
             role = "User" if msg['role'] == 'user' else "Assistant"
             context += f"{role}: {msg['content']}\n"
         return context
@@ -410,13 +313,10 @@ class UnifiedChatSession:
         # Step 2: Optionally retrieve database context (RAG)
         context = ""
         if use_rag:
-            context = retrieve_relevant_products(user_message, limit=10)
+            context = retrieve_relevant_products(user_message, limit=10, session_override=self._db_session_override)
         
-        # Step 3: Send to backend
-        if self.backend == "gemini":
-            result = self._send_gemini(user_message, context)
-        else:
-            result = self._send_ollama(user_message, context)
+        # Step 3: Send to Gemini
+        result = self._send_gemini(user_message, context)
         
         # Step 4: Add assistant response to history if successful
         if result['success'] and result['response']:
@@ -480,33 +380,16 @@ class UnifiedChatSession:
         finally:
             spinner.stop()
     
-    def _send_ollama(self, user_message: str, context: str) -> Dict:
-        """Send message to Ollama backend with conversation awareness."""
-        # Build full context including conversation history
-        full_context = context
-        
-        # Add conversation history if available
-        if len(self.conversation_history) > 1:  # More than just current user message
-            conv_context = self._build_conversation_context()
-            if conv_context:
-                full_context = (conv_context + "\n\n" + context) if context else conv_context
-        
-        result = query_ollama(user_message, context=full_context, model=self.ollama_model)
-        result['backend'] = 'Ollama'
-        result['context_used'] = bool(context)
-        return result
-    
+
     def get_status(self) -> Dict:
         """Get current session status."""
         status = {
             'backend': self.backend.upper(),
-            'model': self.gemini_chat or self.ollama_model
+            'model': GEMINI_MODEL,
+            'tokens_used': self.estimated_tokens_used,
+            'tokens_available': self.max_tokens_available,
+            'context_usage_percent': (self.estimated_tokens_used / self.max_tokens_available) * 100
         }
-        
-        if self.backend == "gemini":
-            status['tokens_used'] = self.estimated_tokens_used
-            status['tokens_available'] = self.max_tokens_available
-            status['context_usage_percent'] = (self.estimated_tokens_used / self.max_tokens_available) * 100
         
         return status
     
@@ -536,12 +419,8 @@ class UnifiedChatSession:
         """Clear session and start fresh."""
         self.conversation_history = []
         self._save_history()
-        
-        if self.backend == "gemini":
-            self._init_gemini()
-            return "✓ Gemini session reset with clear history"
-        else:
-            return "✓ Ollama session ready for new conversation"
+        self._init_gemini()
+        return "✓ Chat session reset with clear history"
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -558,20 +437,20 @@ def list_sessions() -> List[str]:
         return []
 
 
-def load_session(session_id: str, backend: str, model: Optional[str] = None) -> Optional[UnifiedChatSession]:
+def load_session(session_id: str) -> Optional[GeminiChatSession]:
     """Load a previous chat session."""
     try:
-        session = UnifiedChatSession(backend=backend, model=model, session_id=session_id)
+        session = GeminiChatSession(session_id=session_id)
         return session
     except Exception as e:
         print(f"❌ Failed to load session: {e}")
         return None
 
 
-def interactive_chat(backend: str, model: Optional[str] = None):
-    """Start fresh interactive chat session with chosen backend."""
+def interactive_chat():
+    """Start fresh interactive chat session with Gemini backend."""
     print("\n" + "=" * 80)
-    print(f"  Unified Chat with {backend.upper()}")
+    print("  Chat with Gemini")
     print("=" * 80)
     print("Commands:")
     print("  'exit' or 'quit'  - End the conversation")
@@ -584,10 +463,10 @@ def interactive_chat(backend: str, model: Optional[str] = None):
     
     # Create fresh session
     try:
-        session = UnifiedChatSession(backend=backend, model=model)
+        session = GeminiChatSession()
         print(f"📝 New session started. Session ID: {session.session_id}\n")
     except Exception as e:
-        print(f"❌ Failed to initialize {backend}: {e}")
+        print(f"❌ Failed to initialize Gemini: {e}")
         return
     
     use_rag = True
@@ -666,7 +545,7 @@ def interactive_chat(backend: str, model: Optional[str] = None):
 
 if __name__ == "__main__":
     print("\n" + "=" * 80)
-    print(" Unified Chat - Conversational AI with RAG")
+    print(" Chat with Gemini - Conversational AI with RAG")
     print("=" * 80 + "\n")
     
     # Initialize database
@@ -674,23 +553,7 @@ if __name__ == "__main__":
         print("\n❌ Database initialization failed. Exiting.")
         exit(1)
     
-    # Choose backend for new session
-    print("🤖 Available backends:")
-    print("  1. Gemini (Cloud-based, with web search)")
-    print("  2. Ollama (Local inference, offline mode)")
     print()
     
-    choice = input("Choose backend (1 or 2): ").strip()
-    
-    if choice == "1":
-        backend = "gemini"
-    elif choice == "2":
-        backend = "ollama"
-    else:
-        print("Invalid choice. Defaulting to Gemini.")
-        backend = "gemini"
-    
-    print()
-    
-    # Start a fresh interactive chat session
-    interactive_chat(backend)
+    # Start interactive chat session
+    interactive_chat()

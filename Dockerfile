@@ -10,7 +10,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY classes.py models.py prompt.py webpage.py ./
+COPY classes.py models.py prompt.py webpage.py unified_chat.py ./
 COPY prompts/ prompts/
 COPY templates/ templates/
 
