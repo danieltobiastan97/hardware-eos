@@ -1,11 +1,17 @@
 # Asset Intelligence Tracker
 
-A self-hosted web application that uses **Google Gemini AI** with real-time Google Search grounding to look up End-of-Support (EOS) and End-of-Life (EOL) dates for hardware and software assets. Upload a spreadsheet, select rows, trigger the pipeline, and get structured EOS data with confidence scores and source URLs — all streamed live to your browser.
+A comprehensive asset lifecycle management system combining **Google Gemini AI** with real-time search, local **Ollama** inference with RAG (Retrieval-Augmented Generation), and context-aware conversation management. Features include:
+- Web application for bulk EOS/EOL lookups via Gemini with Google Search grounding
+- Natural language database queries via local Ollama model (no external API calls)
+- Multi-turn conversation support with automatic token tracking and context management
+
+Upload a spreadsheet, select rows, trigger the AI pipeline, and get structured EOS data with confidence scores and source URLs — all streamed live to your browser. Or query your cached product database conversationally in plain English.
 
 ---
 
 ## Features
 
+### Web Interface (Gemini AI Pipeline)
 - **Bulk file upload** — accepts `.csv` and `.xlsx` files with `Hardware` and `Software` columns
 - **Manual search** — type any product names (semicolon-separated) without uploading a file
 - **Concurrent AI pipeline** — processes multiple assets in parallel via Google Gemini with Google Search grounding
@@ -17,15 +23,30 @@ A self-hosted web application that uses **Google Gemini AI** with real-time Goog
 - **Row selection** — cherry-pick which rows to process
 - **Session authentication** — simple username/password login protecting all routes
 
+### Database & RAG (Ollama Local Model)
+- **Natural language queries** — ask questions about products without SQL knowledge
+- **Local inference** — Ollama model runs locally on `localhost:11434` (no external API dependencies)
+- **Smart filtering** — automatically detects intent (hardware/software/dates) and retrieves relevant data
+- **Context-aware answers** — LLM responds based only on database context, never making up data
+- **Efficient retrieval** — max 10 products per query to optimize token usage
+
+### Multi-Turn Conversations (ChatSession)
+- **Context preservation** — maintain conversation state across multiple turns with automatic history tracking
+- **Token management** — automatic counting and limit enforcement to prevent blocking
+- **Session isolation** — independent sessions prevent state pollution between conversations
+- **Graceful overflow handling** — blocks new messages when token limit reached instead of truncating context
+
 ---
 
 ## Tech Stack
 
 | Layer | Technology |
 |---|---|
-| Backend | Python 3.12, Flask 3.1, Gunicorn |
-| AI | Google Gemini (`gemini-3-flash-preview`) via `google-genai` |
-| Data | pandas, openpyxl, numpy |
+| Backend | Python 3.13, Flask 3.1, Gunicorn |
+| AI (Web) | Google Gemini (`gemini-3-flash-preview`) via `google-genai` |
+| AI (Local) | Ollama (`gemma4:e2b`) for RAG-based database queries |
+| ORM & Database | SQLAlchemy, SQLite (`./data/asset_cache.db`) |
+| Data Processing | pandas, openpyxl, numpy |
 | Frontend | Vanilla JS, custom CSS (dark theme, DM Mono font) |
 | Streaming | Server-Sent Events (SSE) |
 | Container | Docker + Docker Compose |
@@ -121,22 +142,36 @@ Upload a `.csv` or `.xlsx` file with the following columns:
 
 ```
 hardware-eos/
-├── webpage.py          # Flask app — routes, SSE pipeline, CSV export
-├── prompt.py           # Gemini client setup and async AI call logic
-├── classes.py          # Helper, Cleaner, Processing utility classes
-├── prompt.txt          # System prompt / instructions sent to Gemini
-├── keys.json           # API keys (mount at runtime, do not commit)
-├── requirements.txt    # Python dependencies
+├── webpage.py               # Flask app — routes, SSE pipeline, CSV export
+├── prompt.py                # Gemini client setup and async AI call logic
+├── classes.py               # Helper, Cleaner, Processing utility classes
+├── models.py                # SQLAlchemy ORM models (ProductEOS, SupportTier, assetCache)
+├── chat.py                  # ChatSession — multi-turn conversation context management
+├── dbchat.py                # Ollama + RAG interface for natural language database queries
+├── db_init.py               # Database schema initialization script
+├── prompt.txt               # System prompt / instructions sent to Gemini
+├── keys.json                # API keys (mount at runtime, do not commit)
+├── requirements.txt         # Python dependencies
 ├── Dockerfile
 ├── compose.yaml
-└── templates/
-    ├── file-inspector.html   # Main single-page UI
-    └── login.html            # Login page
+├── data/                    # SQLite database and asset cache
+│   └── asset_cache.db       # Database file with product and support tier data
+├── templates/
+│   ├── file-inspector.html  # Main single-page UI
+│   └── login.html           # Login page
+├── static/                  # Static assets (CSS, fonts, images)
+├── test_chat_session.py     # ChatSession unit tests (9 tests)
+├── test_ollama_setup.py     # Ollama connectivity validation
+├── test_db_integration.py   # Database integration tests
+├── test_improved_ollama.py  # Temperature and prompt optimization tests
+└── test_rag_mode.py         # RAG retrieval + LLM answer integration tests
 ```
 
 ---
 
 ## Configuration
+
+### Web Application & Gemini
 
 All configuration is passed via environment variables:
 
@@ -147,6 +182,74 @@ All configuration is passed via environment variables:
 | `APP_ADMIN_PASSWORD_HASH` | *(unset)* | Optional: Werkzeug password hash (overrides plaintext password) |
 
 The Gemini API key is read from `keys.json`, which is volume-mounted into the container.
+
+### Ollama & Database (RAG Mode)
+
+| Variable | Default | Description |
+|---|---|---|
+| `OLLAMA_API_BASE` | `http://localhost:11434` | Ollama API endpoint |
+| `OLLAMA_MODEL` | `gemma4:e2b` | Model to use for database queries |
+| `DATABASE_URL` | `sqlite:///./data/asset_cache.db` | SQLite database path |
+
+#### Setup Requirements
+1. Ensure Ollama is running locally on `localhost:11434`
+2. Pull the `gemma4:e2b` model (or configure `OLLAMA_MODEL` for a different model)
+3. Initialize database with `db_init.py` before running RAG queries
+
+### ChatSession (Multi-Turn Conversations)
+
+The `ChatSession` class handles conversation state automatically. Initialize with:
+
+```python
+from chat import ChatSession
+
+session = ChatSession(
+    model="gemini-1.5-flash",  # Model name
+    api_key="your-api-key"     # API key
+)
+
+# Send a message
+response = session.send_message("What hardware expires in 2026?")
+print(response)
+
+# Access history and token usage
+print(session.get_history())
+print(f"Tokens used: {session.token_usage}")
+```
+
+**Features:**
+- ✓ Automatic token counting and tracking
+- ✓ Context preservation across multiple turns
+- ✓ Session isolation (no global state pollution)
+- ✓ Graceful blocking when token limit reached
+- ✓ Full conversation history accessible
+
+---
+
+## How It Works
+
+### Web Pipeline (Gemini + Search)
+1. User uploads CSV/XLSX or manually enters product names
+2. Flask preprocesses and deduplicates entries
+3. Concurrent pipeline queries Gemini (with Google Search grounding) for each product
+4. Results stream back via SSE as each product completes
+5. Extended Support Unit (ESU) availability is noted
+6. All results cached to SQLite for future queries
+
+### RAG Mode (Ollama + Local DB)
+1. User asks a natural language question about products
+2. `retrieve_relevant_products()` analyzes keywords and filters database intelligently
+3. Max 10 products formatted as readable context
+4. Context + question sent to local Ollama model
+5. Ollama generates natural language answer based solely on provided data
+6. No SQL exposed to user; no external API calls
+
+### ChatSession (Multi-Turn)
+1. Create a `ChatSession` instance with model + API key
+2. Send messages via `send_message()`
+3. Conversation history maintained automatically
+4. Token counting prevents hitting model limits
+5. Each session isolated from others
 
 ---
 
@@ -164,6 +267,27 @@ A full rebuild is only needed when `requirements.txt` or the `Dockerfile` itself
 docker-compose up --build
 ```
 
+### Running Tests
+
+Test suites are available for all components:
+
+```bash
+# ChatSession context management (9 tests)
+python test_chat_session.py
+
+# Ollama connectivity
+python test_ollama_setup.py
+
+# Database integration
+python test_db_integration.py
+
+# RAG retrieval + LLM answering
+python test_rag_mode.py
+
+# Optimization validation
+python test_improved_ollama.py
+```
+
 ---
 
 ## Security Notes
@@ -172,6 +296,7 @@ docker-compose up --build
 - Set a strong `APP_SECRET_KEY` and `APP_ADMIN_PASSWORD` in production via `.env`
 - For hashed passwords, generate with `werkzeug.security.generate_password_hash` and set `APP_ADMIN_PASSWORD_HASH`
 - The app runs as a single Gunicorn worker (required for in-memory result caching to work correctly across requests)
+- Ollama instance should be isolated to trusted networks (no authentication by default)
 
 ---
 

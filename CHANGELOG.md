@@ -4,6 +4,67 @@ All notable changes between branches are documented in this file.
 
 ---
 
+## [v1.3] — 2026-04-06
+
+> New components for natural language database queries and multi-turn conversation management.
+
+### Added
+
+- **ChatSession context management** — New `chat.py` module implementing `ChatSession` class for managing multi-turn conversations with automatic token tracking and context preservation.
+  - Automatic token counting and limit enforcement
+  - Session isolation to prevent state pollution
+  - Graceful blocking when token limit reached
+  - Full conversation history accessible via `get_history()`
+  - 9 comprehensive unit tests in `test_chat_session.py` validating isolation, token tracking, and overflow handling
+
+- **Ollama local model integration** — Standalone inference engine for database queries without external API dependencies.
+  - Runs on `localhost:11434` (Docker-compatible)
+  - Model: `gemma4:e2b` (configurable via `OLLAMA_MODEL` environment variable)
+  - Temperature optimized to 0.3 for accurate, deterministic answers
+  - Sampling parameters: `top_p=0.9, top_k=40, num_ctx=4096`
+
+- **RAG (Retrieval-Augmented Generation) architecture** — New `dbchat.py` module providing natural language database queries.
+  - `retrieve_relevant_products()` — intelligent filtering based on keyword detection (hardware/software/dates/recency)
+  - `query_ollama()` — sends context + question to local model for answer generation
+  - `process_database_query()` — orchestrates retrieval and answering pipeline
+  - `interactive_chat()` — interactive CLI for testing and querying
+  - Commands: `exit`, `quit`, `models`, `schema`, `all`
+
+- **Database models** — Three SQLAlchemy ORM models in `models.py`:
+  - `ProductEOS` — main product table with hardware/software type, EOS date, and ESU availability
+  - `SupportTier` — multi-tier support lifecycle tracking (Standard, ESU, Premier, etc.)
+  - `assetCache` — caches pipeline results with confidence scores and source links
+
+- **Database initialization** — `db_init.py` creates tables and optional sample data.
+
+- **Test suites for new components**:
+  - `test_chat_session.py` — 9 tests for ChatSession (isolation, token tracking, context preservation)
+  - `test_ollama_setup.py` — validates Ollama connectivity and model availability
+  - `test_db_integration.py` — tests SQLAlchemy ORM and database queries
+  - `test_improved_ollama.py` — validates temperature and prompt optimization
+  - `test_rag_mode.py` — integration tests for RAG retrieval + LLM answering
+
+- **Data folder** — `./data/asset_cache.db` for persistent SQLite storage (replaces in-memory caching pattern).
+
+- **Environment variables**:
+  - `OLLAMA_API_BASE` — Ollama endpoint (default: `http://localhost:11434`)
+  - `OLLAMA_MODEL` — Model name (default: `gemma4:e2b`)
+  - `DATABASE_URL` — SQLite path (default: `sqlite:///./data/asset_cache.db`)
+
+### Changed
+
+- **README.md** — Updated to document all three subsystems (web pipeline, RAG mode, ChatSession), new tech stack, and component overview.
+
+- **Tech stack** — Updated Python from 3.12 to 3.13; added SQLAlchemy, SQLite, Ollama.
+
+- **Project structure** — Added `chat.py`, `dbchat.py`, `models.py`, `db_init.py`, `data/`, and 5 new test files.
+
+### Fixed
+
+- Database model field definitions to cleanly support ProductEOS, SupportTier, and assetCache schemas.
+
+---
+
 ## [v1.2] — 2026-03-27
 
 > Changes present in `v1.2` that are **not** in `main`.
