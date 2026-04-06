@@ -139,6 +139,17 @@ Upload a `.csv` or `.xlsx` file with the following columns:
 
 ---
 
+## Quick Test with Sample Data
+
+Try the app immediately with the included **`test.csv`** file:
+1. From the web UI, upload `test.csv` (included in the project root)
+2. It contains 3 hardware items and 2 software items ready for testing
+3. Click **Trigger AI Intelligence Pipeline** to see live results
+
+This is useful for testing the full workflow before uploading your own asset data.
+
+---
+
 ## Usage
 
 1. **Upload a file** — drag & drop or click to browse, or switch to manual search mode
