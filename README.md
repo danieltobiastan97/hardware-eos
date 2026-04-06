@@ -162,6 +162,47 @@ This is useful for testing the full workflow before uploading your own asset dat
 
 ---
 
+## Terminal Interfaces
+
+### Unified Chat (Recommended)
+Choose between **Gemini** or **Ollama** from a single interface:
+
+```bash
+python unified_chat.py
+```
+
+Features:
+- **Backend Selection** — Choose Gemini (cloud, web search) or Ollama (local, offline)
+- **RAG Database Context** — Automatically retrieves relevant asset data before answering
+- **Toggle RAG On/Off** — Use `rag on` or `rag off` commands to control context retrieval
+- **Multi-Turn Conversations** — Maintains session state across multiple messages
+- **Status Tracking** — View token usage and session information
+
+Interactive commands:
+- `exit` or `quit` — End conversation
+- `reset` — Clear session and start fresh
+- `status` — Show token usage and context status
+- `schema` — Display database schema
+- `rag on/off` — Toggle database context retrieval
+
+### Gemini Chat (Stateful Conversation)
+
+```bash
+python chat.py
+```
+
+Standalone multi-turn conversation with Gemini, including token tracking and context management.
+
+### Ollama + RAG (Local Database Queries)
+
+```bash
+python dbchat.py
+```
+
+Query your asset database using Ollama (requires local Ollama server at `localhost:11434`).
+
+---
+
 ## Project Structure
 
 ```
@@ -172,6 +213,8 @@ hardware-eos/
 ├── models.py                # SQLAlchemy ORM models (ProductEOS, SupportTier, assetCache)
 ├── chat.py                  # ChatSession — multi-turn conversation context management
 ├── dbchat.py                # Ollama + RAG interface for natural language database queries
+├── unified_chat.py          # Unified interface — choose between Gemini or Ollama with RAG
+├── demo_unified_chat.py     # Demo script showing UnifiedChatSession usage
 ├── db_init.py               # Database schema initialization script
 ├── prompt.txt               # System prompt / instructions sent to Gemini
 ├── keys.json                # API keys (mount at runtime, do not commit)
