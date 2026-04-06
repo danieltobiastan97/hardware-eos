@@ -9,7 +9,16 @@ Upload a spreadsheet, select rows, trigger the AI pipeline, and get structured E
 
 ---
 
-## Features
+## Development Status
+
+| Component | Status | Access |
+|---|---|---|
+| Web Pipeline (Gemini AI) | ✓ Production | Web UI (`http://localhost:8080`) |
+| Database Models (SQLAlchemy) | ✓ Production | Integrated with web pipeline |
+| Ollama RAG Mode | 🔨 In Development | Terminal: `python dbchat.py` |
+| ChatSession Context | 🔨 In Development | Python import + terminal tests |
+
+---
 
 ### Web Interface (Gemini AI Pipeline)
 - **Bulk file upload** — accepts `.csv` and `.xlsx` files with `Hardware` and `Software` columns
@@ -23,14 +32,18 @@ Upload a spreadsheet, select rows, trigger the AI pipeline, and get structured E
 - **Row selection** — cherry-pick which rows to process
 - **Session authentication** — simple username/password login protecting all routes
 
-### Database & RAG (Ollama Local Model)
+### Database & RAG (Ollama Local Model) — **IN DEVELOPMENT**
+> Ollama components are currently in active development and integration with the web frontend. Terminal-only access available on development server.
+
 - **Natural language queries** — ask questions about products without SQL knowledge
 - **Local inference** — Ollama model runs locally on `localhost:11434` (no external API dependencies)
 - **Smart filtering** — automatically detects intent (hardware/software/dates) and retrieves relevant data
 - **Context-aware answers** — LLM responds based only on database context, never making up data
 - **Efficient retrieval** — max 10 products per query to optimize token usage
 
-### Multi-Turn Conversations (ChatSession)
+### Multi-Turn Conversations (ChatSession) — **IN DEVELOPMENT**
+> ChatSession is currently in active development and integration with the web frontend. Terminal-only access available on development server.
+
 - **Context preservation** — maintain conversation state across multiple turns with automatic history tracking
 - **Token management** — automatic counting and limit enforcement to prevent blocking
 - **Session isolation** — independent sessions prevent state pollution between conversations
@@ -183,7 +196,9 @@ All configuration is passed via environment variables:
 
 The Gemini API key is read from `keys.json`, which is volume-mounted into the container.
 
-### Ollama & Database (RAG Mode)
+### Ollama & Database (RAG Mode) — *IN DEVELOPMENT*
+
+> These components are actively being developed and integrated with the web frontend. Currently accessible via terminal on development server.
 
 | Variable | Default | Description |
 |---|---|---|
@@ -191,12 +206,15 @@ The Gemini API key is read from `keys.json`, which is volume-mounted into the co
 | `OLLAMA_MODEL` | `gemma4:e2b` | Model to use for database queries |
 | `DATABASE_URL` | `sqlite:///./data/asset_cache.db` | SQLite database path |
 
-#### Setup Requirements
+#### Setup Requirements (Development)
 1. Ensure Ollama is running locally on `localhost:11434`
 2. Pull the `gemma4:e2b` model (or configure `OLLAMA_MODEL` for a different model)
 3. Initialize database with `db_init.py` before running RAG queries
+4. **Terminal Access:** Run `python dbchat.py` in the development server to interact with RAG mode
 
-### ChatSession (Multi-Turn Conversations)
+### ChatSession (Multi-Turn Conversations) — *IN DEVELOPMENT*
+
+> Currently in active development and integration. Terminal-only access available on development server.
 
 The `ChatSession` class handles conversation state automatically. Initialize with:
 
@@ -236,20 +254,24 @@ print(f"Tokens used: {session.token_usage}")
 5. Extended Support Unit (ESU) availability is noted
 6. All results cached to SQLite for future queries
 
-### RAG Mode (Ollama + Local DB)
-1. User asks a natural language question about products
+### RAG Mode (Ollama + Local DB) — *IN DEVELOPMENT*
+1. User asks a natural language question about products (via terminal: `python dbchat.py`)
 2. `retrieve_relevant_products()` analyzes keywords and filters database intelligently
 3. Max 10 products formatted as readable context
 4. Context + question sent to local Ollama model
 5. Ollama generates natural language answer based solely on provided data
 6. No SQL exposed to user; no external API calls
 
-### ChatSession (Multi-Turn)
+> **Access:** Currently available only via terminal on development server. Web frontend integration in progress.
+
+### ChatSession (Multi-Turn) — *IN DEVELOPMENT*
 1. Create a `ChatSession` instance with model + API key
 2. Send messages via `send_message()`
 3. Conversation history maintained automatically
 4. Token counting prevents hitting model limits
 5. Each session isolated from others
+
+> **Access:** Currently available only via terminal on development server. Web frontend integration in progress.
 
 ---
 
@@ -272,20 +294,37 @@ docker-compose up --build
 Test suites are available for all components:
 
 ```bash
-# ChatSession context management (9 tests)
+# ChatSession context management (9 tests) — IN DEVELOPMENT
 python test_chat_session.py
 
-# Ollama connectivity
+# Ollama connectivity — IN DEVELOPMENT
 python test_ollama_setup.py
 
 # Database integration
 python test_db_integration.py
 
-# RAG retrieval + LLM answering
+# RAG retrieval + LLM answering — IN DEVELOPMENT
 python test_rag_mode.py
 
-# Optimization validation
+# Optimization validation — IN DEVELOPMENT
 python test_improved_ollama.py
+```
+
+### Testing Development Features
+
+**To test Ollama RAG mode interactively:**
+```bash
+python dbchat.py
+# Then ask questions at the prompt (e.g., "Show me all software products")
+# Commands: exit, quit, models, schema, all
+```
+
+**To test ChatSession programmatically:**
+```python
+from chat import ChatSession
+session = ChatSession(model="gemini-1.5-flash", api_key="your-key")
+response = session.send_message("What hardware expires in 2026?")
+print(response)
 ```
 
 ---
