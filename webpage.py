@@ -759,14 +759,17 @@ def get_time():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _get_chat_session() -> GeminiChatSession:
-    """Return the GeminiChatSession for the logged-in user, creating one if needed."""
-    user_key = session.get("user", "anon")
-    if user_key not in _chat_sessions:
-        _chat_sessions[user_key] = GeminiChatSession(
-            session_id=f"web_{user_key}",
-            db_session_override=db_session
-        )
-    return _chat_sessions[user_key]
+    """Return a fresh GeminiChatSession with auto-rotating timestamp-based IDs.
+    
+    This ensures each popup/chat window gets a new session file, preventing
+    any single session from growing unbounded. Old sessions are archived on disk.
+    """
+    # Generate unique session ID with timestamp (millisecond precision)
+    session_id = datetime.now().strftime("web_%Y%m%d_%H%M%S_%f")[:-3]
+    return GeminiChatSession(
+        session_id=session_id,
+        db_session_override=db_session
+    )
 
 
 @app.route('/chat/send', methods=['POST'])

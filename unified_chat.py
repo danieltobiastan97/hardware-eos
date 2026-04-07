@@ -282,17 +282,7 @@ CONSTRAINTS:
         except Exception as e:
             print(f"⚠ Could not save history: {e}")
     
-    def _build_conversation_context(self) -> str:
-        """Build conversation context from history for multi-turn awareness."""
-        if not self.conversation_history:
-            return ""
-        
-        context = "Previous conversation:\n"
-        for msg in self.conversation_history[:-1]:  # All messages except current for context
-            role = "User" if msg['role'] == 'user' else "Assistant"
-            context += f"{role}: {msg['content']}\n"
-        return context
-    
+
     def send_message(self, user_message: str, use_rag: bool = True) -> Dict:
         """
         Send a message and get a response with conversation awareness.
@@ -334,7 +324,18 @@ CONSTRAINTS:
         return result
     
     def _send_gemini(self, user_message: str, context: str) -> Dict:
-        """Send message to Gemini backend with conversation awareness."""
+        """Send message to Gemini backend. Gemini chat maintains history internally.
+        
+        IMPORTANT: We do NOT reconstruct and send full conversation history.
+        The self.gemini_chat object (Google's native chat interface) maintains 
+        state internally and preserves context across calls. Sending full history
+        would waste tokens (costs grow exponentially) and increase API latency.
+        
+        Instead, we send only:
+        - RAG context (database results, fresh each call)
+        - Current user message
+        - Let Gemini handle the conversation state
+        """
         spinner = Spinner("Gemini is thinking")
         spinner.start()
         
@@ -345,13 +346,9 @@ CONSTRAINTS:
             if context and context != "No matching products found in the database.":
                 message_parts.append(f"Context from database:\n{context}")
             
-            # Add conversation context if we have history
-            if len(self.conversation_history) > 1:  # More than just the current user message
-                conv_context = self._build_conversation_context()
-                if conv_context:
-                    message_parts.append(conv_context)
-            
-            message_parts.append(f"Current question: {user_message}")
+            # Send ONLY current message (not full history)
+            # Gemini chat maintains state automatically
+            message_parts.append(user_message)
             full_message = "\n\n".join(message_parts)
             
             response = self.gemini_chat.send_message(full_message)
