@@ -318,8 +318,10 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
                     "",
                     timeout=10
                 )
-                if not test_response['success']:
-                    raise RuntimeError(f"API validation failed: {test_response.get('error', 'Unknown error')}")
+                if test_response is None:
+                    raise RuntimeError("API validation failed: timed out")
+                if not hasattr(test_response, 'text'):
+                    raise RuntimeError("API validation failed: invalid response object")
                 print("✓")
             except Exception as e:
                 raise RuntimeError(f"API credential test failed: {e}. Please verify your GEMINI_API_KEY.")
