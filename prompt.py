@@ -1,5 +1,6 @@
 import json
 import os
+from pathlib import Path
 from google.genai import types
 from google import genai
 from classes import Helper, Cleaner, Processing
@@ -9,6 +10,9 @@ import pandas as pd
 import numpy as np
 import sys
 from threading import Thread
+
+# Get absolute path to script directory for file paths
+SCRIPT_DIR = Path(__file__).resolve().parent
 
 # Spinner class for terminal animation
 class Spinner:
@@ -40,12 +44,24 @@ class Spinner:
 
 # load the API keys
 def keys_and_prompt_setup(path='keys.json', prompt_path='prompts/prompt.txt'):
-    with open(path, 'r') as file:
-        keys = json.load(file)
+    """Load API keys and prompt from files using absolute paths."""
+    # Convert to absolute paths if relative
+    key_path = Path(path) if Path(path).is_absolute() else SCRIPT_DIR / path
+    prompt_file_path = Path(prompt_path) if Path(prompt_path).is_absolute() else SCRIPT_DIR / prompt_path
+    
+    try:
+        with open(key_path, 'r') as file:
+            keys = json.load(file)
+    except FileNotFoundError:
+        raise FileNotFoundError(f"API keys file not found: {key_path}")
 
     # load the prompt from a different text file
-    with open(prompt_path, 'r') as pmt_file:
-        instruct = pmt_file.read()
+    try:
+        with open(prompt_file_path, 'r') as pmt_file:
+            instruct = pmt_file.read()
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Prompt file not found: {prompt_file_path}")
+    
     return keys, instruct
 
 def client_setup(keys):

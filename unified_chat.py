@@ -13,6 +13,9 @@ from sqlalchemy import create_engine, text, or_, func
 from sqlalchemy.orm import sessionmaker
 from pathlib import Path
 
+# Get absolute path to script directory for file paths
+SCRIPT_DIR = Path(__file__).resolve().parent
+
 # Suppress warnings
 warnings.filterwarnings("ignore", message=".*thought_signature.*")
 
@@ -38,9 +41,9 @@ db_engine = None
 db_session = None
 db_schema = None
 
-# Chat history storage
-CHAT_HISTORY_DIR = "./chat_sessions"
-Path(CHAT_HISTORY_DIR).mkdir(exist_ok=True)
+# Chat history storage - use absolute path
+CHAT_HISTORY_DIR = str(SCRIPT_DIR / "chat_sessions")
+Path(CHAT_HISTORY_DIR).mkdir(parents=True, exist_ok=True)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Database Functions
@@ -272,11 +275,20 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
 
 """
             
-            # Load database guardrail rules from file
+            # Load database guardrail rules from file - with validation
+            db_guardrail_path = SCRIPT_DIR / 'prompts' / 'db_guardrail.txt'
             db_guardrail = ""
             try:
-                with open('prompts/db_guardrail.txt', 'r') as f:
+                with open(db_guardrail_path, 'r') as f:
                     db_guardrail = f.read().strip()
+                if not db_guardrail:
+                    raise ValueError("db_guardrail.txt is empty")
+                print(f"✓", end=" ")
+                print("(guardrails loaded)")
+            except FileNotFoundError:
+                raise RuntimeError(f"CRITICAL: Database guardrail file not found at {db_guardrail_path}. This file is essential for security. Please ensure it exists with proper content.")
+            except ValueError as ve:
+                raise RuntimeError(f"CRITICAL: Database guardrail file is empty: {db_guardrail_path}. Please add guardrail rules.")
             except Exception as e:
                 print(f"⚠ Could not load db_guardrail.txt: {e}")
             
@@ -305,9 +317,10 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
 
     def _load_history(self):
         """Load conversation history from disk if it exists."""
-        if os.path.exists(self.session_file):
+        session_file_path = Path(self.session_file)
+        if session_file_path.exists():
             try:
-                with open(self.session_file, 'r') as f:
+                with open(session_file_path, 'r') as f:
                     data = json.load(f)
                     self.conversation_history = data.get('history', [])
                     if self.conversation_history:
@@ -320,7 +333,9 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
     def _save_history(self):
         """Save conversation history to disk."""
         try:
-            with open(self.session_file, 'w') as f:
+            session_file_path = Path(self.session_file)
+            session_file_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(session_file_path, 'w') as f:
                 json.dump({
                     'session_id': self.session_id,
                     'backend': self.backend,

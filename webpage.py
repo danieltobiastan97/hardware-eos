@@ -10,20 +10,24 @@ import time
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
 import ntplib
+from pathlib import Path
 
 # Import pipeline functions from prompt.py
 from prompt import keys_and_prompt_setup, client_setup, process_line
 from classes import Helper, Processing
 
 # Import database models
-from models import init_database, ProductEOSRepo, parse_date
+from models import init_database, ProductEOSRepo, parse_date, Base
 
 # Import AI chat backend
 from unified_chat import GeminiChatSession
 
 app = Flask(__name__)
 app.secret_key = os.getenv("APP_SECRET_KEY", "change-this-secret-key")
-UPLOAD_FOLDER = 'uploads'
+
+# Get absolute paths for file operations
+SCRIPT_DIR = Path(__file__).resolve().parent
+UPLOAD_FOLDER = str(SCRIPT_DIR / 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
 
@@ -40,7 +44,17 @@ ADMIN_PASSWORD = os.getenv("APP_ADMIN_PASSWORD", "changeme")
 ADMIN_PASSWORD_HASH = os.getenv("APP_ADMIN_PASSWORD_HASH")
 
 # Initialize database connection (persistent)
-db_engine, db_session = init_database('sqlite:////app/data/asset_cache.db')
+# Use /app/data path for Docker, fallback to local data/ directory
+if os.path.exists('/app/data'):
+    db_path = 'sqlite:////app/data/asset_cache.db'
+else:
+    db_local = SCRIPT_DIR / 'data'
+    db_local.mkdir(parents=True, exist_ok=True)
+    db_path = f'sqlite:///{db_local / "asset_cache.db"}'
+
+db_engine, db_session = init_database(db_path)
+# Ensure all tables are created
+Base.metadata.create_all(db_engine)
 product_repo = ProductEOSRepo(db_session)
 
 # Store the last uploaded lists and AI results cache
