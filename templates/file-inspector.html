@@ -287,6 +287,7 @@
   const editedNames = { hw: {}, sw: {} };
   const tableTotals = { hw: 0, sw: 0 };
   const currentTableData = { hw: [], sw: [] };
+  const pendingRefreshReviews = {};
 
   // ── Live Date-Time Display ────────────────────────────────────────
   let lastFetchedTime = null;
@@ -847,7 +848,10 @@
       tr.appendChild(tdStatus);
       
       // Click handler for expansion
-      tr.addEventListener('click', () => toggleRow(tr, bodyElement, row, typeLabel, i));
+      tr.addEventListener('click', e => {
+        if (e.target.closest('.status-cell')) return;
+        toggleRow(tr, bodyElement, row, typeLabel, i);
+      });
       tr.addEventListener('keydown', event => {
         if (event.key !== 'Enter' && event.key !== ' ') return;
         if (event.target !== tr) return;
@@ -1225,7 +1229,29 @@
       const originalText = textSpan.textContent;
       textSpan.textContent = 'Exporting...';
 
-      const response = await fetch('/export-csv');
+      const selectedIds = [];
+      const selectedWithoutId = [];
+      document.querySelectorAll('.row-select:checked').forEach(checkbox => {
+        const assetId = Number(checkbox.dataset.assetId || 0);
+        if (assetId > 0) selectedIds.push(assetId);
+        else selectedWithoutId.push(checkbox.dataset.index || '?');
+      });
+
+      if (selectedIds.length === 0) {
+        showError('Please select at least one saved row to export.');
+        return;
+      }
+
+      if (selectedWithoutId.length > 0) {
+        showError('Some selected rows are not saved yet. Save them first, then export.');
+        return;
+      }
+
+      const response = await fetch('/export-csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: Array.from(new Set(selectedIds)) })
+      });
       if (!response.ok) {
         const error = await response.json();
         showError(error.error || 'Failed to export CSV');
@@ -1289,9 +1315,159 @@
   let _timerStart = null;
   let _timerRAF   = null;
 
+  function escHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function closeRefreshReviewModal() {
+    const modal = document.getElementById('refresh-review-modal');
+    if (modal) modal.remove();
+  }
+
+  async function confirmRefreshSave(type, index, acceptBtn) {
+    if (acceptBtn) {
+      acceptBtn.disabled = true;
+      acceptBtn.textContent = 'Saving...';
+    }
+
+    try {
+      const pending = pendingRefreshReviews[`${type}-${index}`];
+      if (!pending || !pending.id) throw new Error('This asset has no existing DB record to overwrite.');
+
+      const response = await fetch('/refresh-item', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: pending.id, result: pending.result })
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || 'Save failed');
+
+      rowSetDone(type, index, data.result, true, 'database');
+      const inlineNotice = document.getElementById(`refresh-review-${type}-${index}`);
+      if (inlineNotice) inlineNotice.remove();
+      delete pendingRefreshReviews[`${type}-${index}`];
+      closeRefreshReviewModal();
+      clearError();
+    } catch (err) {
+      showError('Failed to save update: ' + err.message);
+      if (acceptBtn) {
+        acceptBtn.disabled = false;
+        acceptBtn.textContent = 'Accept & Save';
+      }
+    }
+  }
+
+  function openRefreshReviewModal(type, index, oldResult, newResult) {
+    closeRefreshReviewModal();
+
+    const keys = ['Name', 'Hardware/Software', 'Support Model', 'EOS Date', 'Summary', 'Confidence'];
+    const oldData = oldResult || {};
+    const newData = newResult || {};
+    const changedRows = keys
+      .filter(k => String(oldData[k] ?? '') !== String(newData[k] ?? ''))
+      .map(k => `<tr><td style="padding:6px 8px;font-weight:600;">${escHtml(k)}</td><td style="padding:6px 8px;color:#c9c9c9;">${escHtml(oldData[k] ?? '')}</td><td style="padding:6px 8px;color:#7fffb0;">${escHtml(newData[k] ?? '')}</td></tr>`)
+      .join('');
+
+    const modal = document.createElement('div');
+    modal.id = 'refresh-review-modal';
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);display:flex;align-items:center;justify-content:center;z-index:9999;padding:16px;';
+    modal.innerHTML = `
+      <div style="width:min(900px,95vw);max-height:85vh;overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+          <div style="font-weight:700;">Review Updated Data</div>
+          <button type="button" id="close-refresh-review-modal" style="border:0;background:transparent;color:inherit;cursor:pointer;font-size:20px;line-height:1;">×</button>
+        </div>
+        <div style="font-size:0.85rem;opacity:0.85;margin-bottom:10px;">Compare previous values with newly retriggered API output, then confirm overwrite.</div>
+        <table style="width:100%;border-collapse:collapse;font-size:0.82rem;">
+          <thead>
+            <tr>
+              <th style="text-align:left;padding:6px 8px;">Field</th>
+              <th style="text-align:left;padding:6px 8px;">Current</th>
+              <th style="text-align:left;padding:6px 8px;">New</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${changedRows || '<tr><td colspan="3" style="padding:6px 8px;opacity:0.8;">No field differences detected.</td></tr>'}
+          </tbody>
+        </table>
+        <div style="display:flex;gap:8px;margin-top:12px;justify-content:flex-end;">
+          <button type="button" id="cancel-refresh-save" style="height:34px;padding:0 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.25);background:transparent;color:inherit;cursor:pointer;">Cancel</button>
+          <button type="button" class="btn-pipeline" id="confirm-refresh-save" style="height:34px;padding:0 12px;font-size:0.8rem;">Accept & Save</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    const closeBtn = document.getElementById('close-refresh-review-modal');
+    const cancelBtn = document.getElementById('cancel-refresh-save');
+    const confirmBtn = document.getElementById('confirm-refresh-save');
+
+    if (closeBtn) closeBtn.addEventListener('click', closeRefreshReviewModal);
+    if (cancelBtn) cancelBtn.addEventListener('click', closeRefreshReviewModal);
+    if (confirmBtn) confirmBtn.addEventListener('click', () => confirmRefreshSave(type, index, confirmBtn));
+    modal.addEventListener('click', e => { if (e.target === modal) closeRefreshReviewModal(); });
+  }
+
+  function renderRefreshReview(type, index, oldResult, newResult, assetId) {
+    const expandRow = document.getElementById(`expand-${type}-${index}`);
+    const parentRow = document.querySelector(`tr[data-row-id="row-${type}-${index}"]`);
+    let expandTd = null;
+    if (expandRow && parentRow) {
+      // Ensure expand row is visible so user can review the diff immediately.
+      parentRow.classList.add('row-expanded');
+      expandRow.style.display = 'table-row';
+      expandTd = expandRow.querySelector('td');
+    }
+
+    const reviewId = `refresh-review-${type}-${index}`;
+    const existingReview = document.getElementById(reviewId);
+    if (existingReview) existingReview.remove();
+
+    const review = document.createElement('div');
+    review.id = reviewId;
+    review.style.cssText = 'margin-top:12px;padding:12px;border:1px solid rgba(255,255,255,0.15);border-radius:10px;background:rgba(0,0,0,0.2);';
+    review.innerHTML = `
+      <div style="font-weight:600;margin-bottom:8px;">Review Updated Data</div>
+      <div style="font-size:0.85rem;opacity:0.85;margin-bottom:10px;">New API result is ready. Click <strong>Accept & Save</strong> on the Retrigger button to overwrite the database record.</div>
+      <div style="display:flex;gap:8px;margin-top:10px;">
+        <button type="button" class="btn-pipeline" id="open-save-${type}-${index}" style="height:34px;padding:0 12px;font-size:0.8rem;">Open Diff Modal</button>
+        <button type="button" id="cancel-save-${type}-${index}" style="height:34px;padding:0 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.25);background:transparent;color:inherit;cursor:pointer;">Dismiss</button>
+      </div>
+    `;
+
+    if (expandTd) {
+      expandTd.appendChild(review);
+    }
+    pendingRefreshReviews[`${type}-${index}`] = { id: assetId, result: newResult };
+
+    const openBtn = document.getElementById(`open-save-${type}-${index}`);
+    const cancelBtn = document.getElementById(`cancel-save-${type}-${index}`);
+
+    if (openBtn) openBtn.addEventListener('click', () => openRefreshReviewModal(type, index, oldResult, newResult));
+
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', () => {
+        review.remove();
+        delete pendingRefreshReviews[`${type}-${index}`];
+        closeRefreshReviewModal();
+      });
+    }
+
+    openRefreshReviewModal(type, index, oldResult, newResult);
+  }
+
   async function refreshItemFromAPI(type, index, itemName) {
     const icon = document.getElementById(`icon-${type}-${index}`);
     if (!icon || !itemName) return;
+
+    const oldResult = (currentTableData[type] && currentTableData[type][index])
+      ? { ...currentTableData[type][index] }
+      : null;
     
     // Show loading state with spinning animation
     const originalChar = icon.textContent;
@@ -1319,49 +1495,15 @@
       
       // Remove spinning animation before updating
       icon.classList.remove('refreshing');
-      
-      // Update the display with fresh result (will show ✓ green)
-      rowSetDone(type, index, data.result, false, 'api');
-      
-      // Update expanded row if visible
-      const expandedRow = document.querySelector(`#expand-${type}-${index}`);
-      if (expandedRow && expandedRow.style.display !== 'none') {
-        const expandTd = expandedRow.querySelector('td');
-        if (expandTd && data.result) {
-          // Trigger a re-render of expanded content by simulating rowSetDone
-          const summary     = data.result.Summary || '';
-          const support     = data.result['Support Model'] || 'N/A';
-          const urls        = data.result['Source URLs'] || [];
-          const tiers       = data.result['Support Tiers'] || [];
 
-          expandTd.querySelector('.expand-content-grid').innerHTML = `
-            <div>
-              <div class="expand-section">
-                <div class="expand-section-title">Executive Summary</div>
-                <div class="expand-value">${summary || 'No summary available.'}</div>
-              </div>
-              <div class="expand-section">
-                <div class="expand-section-title">Support Model</div>
-                <div class="support-model-box">
-                  <div class="expand-value">${support}</div>
-                </div>
-              </div>
-              <div class="expand-section">
-                <div class="expand-section-title">Sources</div>
-                ${urls.length > 0
-                  ? `<div class="sources-list">${urls.map(u => {
-                      let host = u;
-                      try { host = new URL(u).hostname; } catch(_) {}
-                      return `<a href="${u}" target="_blank" class="source-link">🔗 ${host}</a>`;
-                    }).join('')}</div>`
-                  : '<div class="expand-value" style="color: #666;">No sources available.</div>'
-                }
-              </div>
-            </div>`;
-        }
-      }
-      
-      // Success - icon already updated by rowSetDone
+      // Preview only: show old vs new and wait for explicit Accept & Save.
+      const current = oldResult || data.old_result || null;
+      renderRefreshReview(type, index, current, data.result, data.asset_id || data.result?.id || null);
+
+      icon.textContent = '⚠';
+      icon.style.color = '#f5b041';
+      icon.title = 'Review changes below and click Accept & Save';
+      icon.classList.add('visible');
       
     } catch (err) {
       console.error('Refresh error:', err);
@@ -1443,6 +1585,11 @@
       icon.title = iconTitle;
       icon.classList.add('visible');
       icon.setAttribute('data-cache-source', cachedFrom);
+
+      const assetId = Number(result?.id || 0);
+      if (assetId > 0) {
+        icon.setAttribute('data-asset-id', String(assetId));
+      }
       
       // Add cached class and interaction handlers
       if (cachedFrom !== 'api') {
@@ -1460,6 +1607,11 @@
         icon.onmouseenter = null;
         icon.onmouseleave = null;
         icon.onclick = null;
+        icon.style.cursor = 'pointer';
+        icon.title = 'Fresh result — click to retrigger API';
+        icon.onmouseenter = () => { if (!icon.classList.contains('refreshing')) icon.textContent = '↻'; };
+        icon.onmouseleave = () => { if (!icon.classList.contains('refreshing')) icon.textContent = iconChar; };
+        icon.onclick = (e) => { e.stopPropagation(); refreshItemFromAPI(type, index, result?.Name || ''); };
       }
     }
 
@@ -1467,6 +1619,17 @@
     if (!result) return;
     const tr = document.querySelector(`tr[data-row-id="row-${type}-${index}"]`);
     if (!tr) return;
+
+    const assetId = Number(result.id || 0);
+    if (assetId > 0) {
+      tr.setAttribute('data-asset-id', String(assetId));
+      const rowCheckbox = tr.querySelector('.row-select');
+      if (rowCheckbox) rowCheckbox.dataset.assetId = String(assetId);
+    }
+
+    if (currentTableData[type] && currentTableData[type][index] !== undefined) {
+      currentTableData[type][index] = { ...result };
+    }
 
     // EOS Date column
     const tdEOS = tr.cells[4];
