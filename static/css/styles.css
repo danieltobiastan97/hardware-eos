@@ -954,6 +954,24 @@ body.light-mode .btn-pipeline:active {
   letter-spacing: 0.05em;
 }
 
+.ai-chat-clear {
+  width: 32px;
+  height: 32px;
+  background: none;
+  border: none;
+  font-size: 18px;
+  color: var(--muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease;
+}
+
+.ai-chat-clear:hover {
+  color: var(--text);
+}
+
 .ai-chat-close {
   width: 32px;
   height: 32px;
@@ -966,6 +984,7 @@ body.light-mode .btn-pipeline:active {
   align-items: center;
   justify-content: center;
   transition: color 0.2s ease;
+  margin-left: auto;
 }
 
 .ai-chat-close:hover {
@@ -1209,6 +1228,14 @@ body.light-mode .ai-chat-input-wrap {
 body.light-mode .ai-chat-input {
   background: #ffffff;
   border-color: #e0e0e0;
+}
+
+body.light-mode .ai-chat-clear {
+  color: #888;
+}
+
+body.light-mode .ai-chat-clear:hover {
+  color: #333;
 }
 
 body.light-mode .ai-chat-close {
