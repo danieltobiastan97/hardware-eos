@@ -11,6 +11,7 @@ from io import BytesIO
 from datetime import datetime, timezone, timedelta
 import ntplib
 from pathlib import Path
+from sqlalchemy import text
 
 # Import pipeline functions from prompt.py
 from prompt import keys_and_prompt_setup, client_setup, process_line
