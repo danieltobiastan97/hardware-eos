@@ -1,44 +1,67 @@
-# Asset Intelligence Tracker
+# Hardware EOS Tracker
 
-A comprehensive asset lifecycle management system combining **Google Gemini AI** with real-time search and context-aware conversation management. Features include:
-- Web application for bulk EOS/EOL lookups via Gemini with Google Search grounding
-- Natural language database queries via Gemini with RAG (Retrieval-Augmented Generation)
-- Multi-turn conversation support with automatic token tracking and context management
+An intelligent asset lifecycle management system powered by **Google Gemini AI** for End-of-Support (EOS) date discovery and tracking. Combines bulk AI-powered lookups, conversational database queries, and real-time EOS status indicators.
 
-Upload a spreadsheet, select rows, trigger the AI pipeline, and get structured EOS data with confidence scores and source URLs — all streamed live to your browser. Or query your cached product database conversationally in plain English.
-
----
-
-## Development Status
-
-| Component | Status | Access |
-|---|---|---|
-| Web Pipeline (Gemini AI) | ✓ Production | Web UI (`http://localhost:3000`) |
-| Database Models (SQLAlchemy) | ✓ Production | Integrated with web pipeline |
-| Chat Interface (Gemini RAG) | ✓ Production | Terminal: `python unified_chat.py` |
+**Key Features:**
+- 🤖 **Ask AI Chat** — Conversational queries about asset EOS/EOL dates with RAG database retrieval
+- 📊 **Bulk Pipeline** — Upload spreadsheets, auto-lookup EOS dates via Gemini API with live streaming results
+- 📅 **EOS Status Indicators** — Real-time date validation showing expired assets with red warning badges
+- 💾 **Smart Caching** — Results cached to SQLite; re-run avoids unnecessary API calls
+- 🔍 **Preview & Confirm** — Retrigger API calls show before/after comparison before saving
+- 📤 **Selective Export** — Export only checked rows as CSV
 
 ---
 
-### Web Interface (Gemini AI Pipeline)
-- **Bulk file upload** — accepts `.csv` and `.xlsx` files with `Hardware` and `Software` columns
-- **Manual search** — type any product names (semicolon-separated) without uploading a file
-- **Concurrent AI pipeline** — processes multiple assets in parallel via Google Gemini with Google Search grounding
-- **Live streaming results** — results appear row-by-row via Server-Sent Events as the AI finishes each item
-- **Result caching** — already-processed items are served from memory on repeat runs, skipping unnecessary API calls
-- **Expandable detail rows** — click any row to see EOS date, support tiers, confidence breakdown, summary, and source URLs
-- **CSV export** — export all pipeline results to a timestamped CSV file
-- **Inline name editing** — edit asset names in the table before running the pipeline
-- **Row selection** — cherry-pick which rows to process
-- **Session authentication** — simple username/password login protecting all routes
+## Features
 
-### Chat Interface (Gemini RAG Mode)
-- **Conversational queries** — ask questions about EOS/EOL products in natural language
-- **Database retrieval** — automatically fetches relevant product data from cache
-- **Cloud-based inference** — uses Google Gemini (`gemini-2.5-flash`) for fast, accurate responses
-- **Multi-turn awareness** — maintains conversation context across multiple messages
-- **Session persistence** — conversation history saved to disk automatically
-- **RAG toggle** — enable/disable database context retrieval per query
-- **Token tracking** — monitors Gemini API token usage in real-time
+### Web Interface (Primary)
+
+#### 1. Asset Pipeline
+- **Bulk upload** — Accepts `.csv` and `.xlsx` files with `Hardware` and `Software` columns
+- **Manual entry** — Type asset names directly without uploading files
+- **Concurrent processing** — Multiple assets queried in parallel via Google Gemini with web search grounding
+- **Live streaming** — Results appear row-by-row via Server-Sent Events as processing completes
+- **Result caching** — Already-processed assets served from database/memory, skipping redundant API calls
+- **Expandable details** — Click any row to see full EOS date, support tiers, confidence, sources, and summary
+- **Selective export** — Check/uncheck rows and export only selected assets to CSV
+- **Inline editing** — Edit asset names before triggering the pipeline
+- **Inline refresh** — Retrigger API for a single asset, preview changes, then confirm save
+
+#### 2. Ask AI Chat (Beta)
+- **Conversational interface** — Ask natural language questions about EOS/EOL dates
+- **RAG retrieval** — Automatically fetches relevant product context from local database before answering
+- **Multi-turn awareness** — Maintains conversation context across multiple messages in the same session
+- **Session persistence** — Chat history saved to disk; reload on page refresh
+- **Token tracking** — Monitors Gemini API usage; warns at 80%, blocks at 1000 token limit per conversation
+- **Response grounding** — Fallback logic prevents model from claiming data is missing when assets are actually present in database
+- **Clear chat** — Start fresh conversation with one click
+
+#### 3. EOS Status Indicators
+- **NTP time sync** — Checks dates against authoritative NTP servers (falls back to local time if unavailable)
+- **Real-time validation** — Displays red "EOS" badge next to any asset with passed end-of-support date
+- **Applied everywhere** — Works in pipeline results, cached data, manual refreshes, and export payloads
+- **Visual clarity** — Red outlined box with red text for easy identification
+
+#### 4. Security & Access Control
+- **Session authentication** — Username/password login protecting all routes
+- **Configurable credentials** — Override defaults via environment variables
+- **Password hashing** — Optional Werkzeug password hashing for production deployments
+
+---
+
+## Tech Stack
+
+| Component | Technology |
+|---|---|
+| **Backend** | Python 3.12, Flask 3.1 |
+| **AI & LLM** | Google Gemini 2.5 Flash (`google-genai`), Web Search grounding |
+| **Database** | SQLAlchemy ORM, SQLite (`./data/asset_cache.db`) |
+| **Time Sync** | NTP via `ntplib` for accurate EOS date validation |
+| **Data Processing** | pandas, openpyxl for spreadsheet parsing |
+| **Frontend** | Vanilla JavaScript, modern CSS (dark theme, DM Mono font) |
+| **Streaming** | Server-Sent Events (SSE) for live pipeline results |
+| **Container** | Docker + Docker Compose |
+| **Web Server** | Gunicorn (single-worker for in-memory caching) |
 
 ---
 
@@ -59,159 +82,134 @@ Upload a spreadsheet, select rows, trigger the AI pipeline, and get structured E
 ## Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-- A **Google Gemini API key** — get one at [Google AI Studio](https://aistudio.google.com/)
+- A **Google Gemini API key** — get one free at [Google AI Studio](https://aistudio.google.com/)
 
 ---
 
 ## Quickstart
 
-### 1. Clone the repository
+### 1. Clone the Repository
 
 ```bash
 git clone https://github.com/danieltobiastan97/hardware-eos.git
-cd hardware-eos
+cd hardware-eos/hardware-eos
 ```
 
-### 2. Configure secrets
+### 2. Create Configuration Files
 
-Create a `.env` file in the project root (never commit this):
-
+**.env** (project root, never commit):
 ```env
-APP_SECRET_KEY=your-random-secret-key
+APP_SECRET_KEY=your-random-secret-key-here
 APP_ADMIN_PASSWORD=your-login-password
 ```
 
-Create `keys.json` for the Gemini API key (also never commit this):
-
+**keys.json** (project root, never commit):
 ```json
 {
-  "GEMINI_API_KEY": "your-gemini-api-key-here"
+  "GEMINI_API_KEY": "your-gemini-api-key-from-aistudio"
 }
 ```
 
-> `keys.json` is mounted into the container as read-only at runtime. Add it to `.gitignore`.
+> Add both files to `.gitignore` to prevent accidental commits.
 
-### 3. Build and run
-
-```bash
-docker-compose up --build
-```
-
-The app will be available at **http://localhost:8080**
-
-To run in detached mode:
+### 3. Build and Run
 
 ```bash
-docker-compose up --build -d
+docker compose up --build -d
 ```
 
-### 4. Log in
+The app will be available at **http://localhost:3000**
 
-Default credentials (override via `.env`):
-- **Username:** `admin`
-- **Password:** `Generate your own password`
+### 4. Log In
+
+- **Username:** `admin` (from `.env`)
+- **Password:** Your configured password (from `.env`)
 
 ---
 
 ## Input File Format
 
-Upload a `.csv` or `.xlsx` file with the following columns:
+Upload a `.csv` or `.xlsx` file with these columns:
 
 | Hardware | Software |
 |---|---|
-| Dell PowerEdge R720 | Windows Server 2016 |
-| Cisco Catalyst 2960 | Adobe Acrobat DC |
-| HP ProLiant DL380 | |
+| Dell PowerEdge R750 | Windows Server 2022 |
+| Cisco Catalyst 3650 | Adobe Acrobat 2024 |
 
-- Columns must be named exactly `Hardware` and `Software`
-- Either column can be empty or omitted
-- Duplicate entries are automatically removed during preprocessing
-
----
-
-## Quick Test with Sample Data
-
-Try the app immediately with the included **`test.csv`** file:
-1. From the web UI, upload `test.csv` (included in the project root)
-2. It contains 3 hardware items and 2 software items ready for testing
-3. Click **Trigger AI Intelligence Pipeline** to see live results
-
-This is useful for testing the full workflow before uploading your own asset data.
+**Requirements:**
+- Column headers must be exactly `Hardware` and `Software`
+- Either column can be left empty
+- Duplicates are automatically removed during preprocessing
 
 ---
 
-## Usage
+## Usage Workflow
 
-1. **Upload a file** — drag & drop or click to browse, or switch to manual search mode
-2. **Review the asset tables** — hardware and software rows appear after preprocessing
-3. **Select rows** — all rows are selected by default; uncheck any you want to skip
-4. **Edit names** — hover a row and click the pencil icon to adjust an asset name before processing
-5. **Trigger the pipeline** — click **Trigger AI Intelligence Pipeline**; results stream in live
-6. **Expand rows** — click any completed row for the full detail view
-7. **Export** — use the **Export** button to download all results as a `.csv`
+1. **Upload or Enter** — Drag a file into the upload area, or switch to "Manual Search" to type asset names
+2. **Review & Prepare** — Preprocessed rows appear in separate hardware/software tables
+3. **Select Assets** — All rows are selected by default; uncheck any you want to skip
+4. **Edit Names** — Click the pencil icon on any row to adjust the name before processing
+5. **Trigger Pipeline** — Click "Trigger AI Intelligence Pipeline"; results stream live
+6. **Expand Rows** — Click any completed row to see full details (EOS, tiers, confidence, sources, summary)
+7. **Retrigger Assets** — Click the refresh icon on any row to query the API again; preview changes in the modal before saving
+8. **Export Results** — Select rows and click "Export CSV"—only checked assets are included
+9. **Ask AI** — Click the "Ask AI" button to start a conversation about your assets
 
 ---
 
-## Terminal Interfaces
+## Ask AI (Chat)
 
-### Unified Chat (Recommended)
-Choose between **Gemini** or **Ollama** with full conversation awareness:
+### How It Works
 
-```bash
-python unified_chat.py
-```
+1. **Open Chat** — Click the "Ask AI (Beta)" button in the toolbar
+2. **Ask a Question** — Type any natural language question about EOS/EOL dates
+3. **RAG Retrieval** — System automatically fetches relevant products from your database
+4. **AI Response** — Gemini answers based on the retrieved context + your question
+5. **Multi-Turn** — Ask follow-up questions; chat remembers the conversation within the session
+6. **Token Tracking** — See current token usage and limits at the top of the chat
 
-**Key Features:**
-- **Conversation Awareness** — Within a single session, maintains context across multiple turns and remembers all previous messages
-- **Independent Sessions** — Each new run starts fresh - no memory of previous chats (clean slate each time)
-- **Backend Selection** — Choose Gemini (cloud, web search) or Ollama (local, offline)
-- **RAG Database Context** — Automatically retrieves relevant asset data before answering
-- **Toggle RAG On/Off** — Use `rag on`/`rag off` to control context retrieval
-- **Token Tracking** — View real-time token usage and context window status
+### Example Queries
 
-**Interactive Commands:**
-- `exit` or `quit` — End conversation
-- `history` — View conversation transcript from current session
-- `clear` — Clear everything and start fresh within this session
-- `status` — Show session stats, token usage, message count
-- `schema` — Display database schema
-- `rag on/off` — Toggle database context retrieval
+- *"What is the end of support for Adobe Photoshop 2022?"*
+- *"Which hardware products expire in 2026?"*
+- *"Show me all software with no end date information"*
+- *"When does Windows Server 2019 reach end of support?"*
 
-**Multi-Turn Conversation Example (In Single Session):**
-```
-You: What are the oldest hardware products?
-[AI responds with Cerebus, Intel Core i9, etc.]
+### Chat Limits
 
-You: When did the oldest one reach end of support?
-[AI remembers Cerebus from this session and answers correctly!]
+- **1000 tokens per conversation** — Conversations auto-close when limit is reached
+- **800 token warning** — Appears at 80% usage
+- **Clear chat** — Start a fresh conversation with the "Clear" button
 
-You: What support tiers did it have?
-[AI continues context-aware conversation within this session]
+---
 
-[Close/exit program] → Next time you run unified_chat.py, it's a brand new chat
-```
+## Retrigger & Preview
 
-**Demo - Session Awareness:**
-```bash
-python demo_session_awareness.py
-```
-Shows multi-turn conversations with context awareness and session persistence.
+Single-asset refresh without full pipeline re-run:
 
-### Gemini Chat (Stateful Conversation)
+1. **Click Refresh Icon** — Appears on any completed row
+2. **Preview Changes** — Modal shows before/after comparison side-by-side
+3. **Review Differences** — Verify new data before saving
+4. **Accept & Save** — PATCH endpoint persists selected changes to database
+5. **Row Updates** — Table updates in place with new values and EOS status
 
-```bash
-python chat.py
-```
+---
 
-Standalone multi-turn conversation with Gemini, including token tracking and context management.
+## Export
 
-### Ollama + RAG (Local Database Queries)
+### All Results
+- Exports entire processed dataset as CSV
+- Includes all columns: Name, Type, EOS Date, Confidence, Summary, Support Tiers
 
-```bash
-python dbchat.py
-```
+### Selected Rows Only
+- Check only the rows you want to export
+- Click "Export CSV"
+- Only selected assets included in the file
 
-Query your asset database using Ollama (requires local Ollama server at `localhost:11434`).
+### EOS Date Formatting
+- Actual dates displayed as ISO format (YYYY-MM-DD)
+- Placeholder dates humanized as "No EOS found"
+- Expired dates marked with 🔴 red "EOS" indicator (when viewed in web UI)
 
 ---
 
@@ -219,192 +217,204 @@ Query your asset database using Ollama (requires local Ollama server at `localho
 
 ```
 hardware-eos/
-├── webpage.py               # Flask app — routes, SSE pipeline, CSV export
-├── prompt.py                # Gemini client setup and async AI call logic
-├── classes.py               # Helper, Cleaner, Processing utility classes
-├── models.py                # SQLAlchemy ORM models (ProductEOS, SupportTier, assetCache)
-├── chat.py                  # ChatSession — multi-turn conversation context management
-├── dbchat.py                # Ollama + RAG interface for natural language database queries
-├── unified_chat.py          # Unified interface — choose between Gemini or Ollama with RAG
-├── demo_unified_chat.py     # Demo script showing UnifiedChatSession usage
-├── db_init.py               # Database schema initialization script
-├── prompt.txt               # System prompt / instructions sent to Gemini
-├── keys.json                # API keys (mount at runtime, do not commit)
-├── requirements.txt         # Python dependencies
-├── Dockerfile
-├── compose.yaml
-├── data/                    # SQLite database and asset cache
-│   └── asset_cache.db       # Database file with product and support tier data
+├── webpage.py                      # Flask routes, SSE pipeline, export, caching
+├── unified_chat.py                 # Ask AI chat backend with RAG + Gemini
+├── models.py                       # SQLAlchemy ORM (ProductEOS, SupportTier)
+├── classes.py                      # Helper utilities for data processing
+├── prompt.py                       # Gemini client setup and API logic
 ├── templates/
-│   ├── file-inspector.html  # Main single-page UI
-│   └── login.html           # Login page
-├── static/                  # Static assets (CSS, fonts, images)
-├── test_chat_session.py     # ChatSession unit tests (9 tests)
-├── test_ollama_setup.py     # Ollama connectivity validation
-├── test_db_integration.py   # Database integration tests
-├── test_improved_ollama.py  # Temperature and prompt optimization tests
-└── test_rag_mode.py         # RAG retrieval + LLM answer integration tests
+│   ├── file-inspector.html         # Main UI (pipeline, chat modal, export)
+│   └── login.html                  # Login page
+├── static/css/
+│   └── styles.css                  # Dark theme, layout, responsive design
+├── prompts/
+│   ├── guardrail.txt               # Gemini system prompt (database restrictions)
+│   ├── db_guardrail.txt            # Ask AI safety rules
+│   └── prompt.txt                  # Asset lookup instructions
+├── data/
+│   └── asset_cache.db              # SQLite database (auto-created)
+├── chat_sessions/                  # Persistent chat history (auto-created)
+├── tests/
+│   └── test_fixes.py               # Regression tests (8 tests, pytest)
+├── requirements.txt                # Python dependencies
+├── compose.yaml                    # Docker Compose configuration
+├── Dockerfile                      # Container image definition
+├── CHANGELOG.md                    # Feature history
+└── README.md                       # This file
 ```
 
 ---
 
 ## Configuration
 
-### Web Application & Gemini
+### Web Application
 
-All configuration is passed via environment variables:
+Environment variables (set in `.env`):
 
-| Variable | Default | Description |
+| Variable | Default | Purpose |
 |---|---|---|
-| `APP_SECRET_KEY` | `change-this-secret-key` | Flask session signing key |
-| `APP_ADMIN_PASSWORD` | `changeme` | Login password for the `admin` user |
-| `APP_ADMIN_PASSWORD_HASH` | *(unset)* | Optional: Werkzeug password hash (overrides plaintext password) |
+| `APP_SECRET_KEY` | `change-this-secret-key` | Flask session encryption key |
+| `APP_ADMIN_PASSWORD` | `changeme` | Login password for `admin` user |
+| `APP_ADMIN_PASSWORD_HASH` | *(unset)* | Optional: Use hashed password instead of plaintext |
 
-The Gemini API key is read from `keys.json`, which is volume-mounted into the container.
+### Gemini API
 
-### Ollama & Database (RAG Mode) — *IN DEVELOPMENT*
-
-> These components are actively being developed and integrated with the web frontend. Currently accessible via terminal on development server.
-
-| Variable | Default | Description |
-|---|---|---|
-| `OLLAMA_API_BASE` | `http://localhost:11434` | Ollama API endpoint |
-| `OLLAMA_MODEL` | `gemma4:e2b` | Model to use for database queries |
-| `DATABASE_URL` | `sqlite:///./data/asset_cache.db` | SQLite database path |
-
-#### Setup Requirements (Development)
-1. Ensure Ollama is running locally on `localhost:11434`
-2. Pull the `gemma4:e2b` model (or configure `OLLAMA_MODEL` for a different model)
-3. Initialize database with `db_init.py` before running RAG queries
-4. **Terminal Access:** Run `python dbchat.py` in the development server to interact with RAG mode
-
-### ChatSession (Multi-Turn Conversations) — *IN DEVELOPMENT*
-
-> Currently in active development and integration. Terminal-only access available on development server.
-
-The `ChatSession` class handles conversation state automatically. Initialize with:
-
-```python
-from chat import ChatSession
-
-session = ChatSession(
-    model="gemini-1.5-flash",  # Model name
-    api_key="your-api-key"     # API key
-)
-
-# Send a message
-response = session.send_message("What hardware expires in 2026?")
-print(response)
-
-# Access history and token usage
-print(session.get_history())
-print(f"Tokens used: {session.token_usage}")
+Set in `keys.json`:
+```json
+{
+  "GEMINI_API_KEY": "your-key-here"
+}
 ```
 
-**Features:**
-- ✓ Automatic token counting and tracking
-- ✓ Context preservation across multiple turns
-- ✓ Session isolation (no global state pollution)
-- ✓ Graceful blocking when token limit reached
-- ✓ Full conversation history accessible
+### Database
 
----
-
-## How It Works
-
-### Web Pipeline (Gemini + Search)
-1. User uploads CSV/XLSX or manually enters product names
-2. Flask preprocesses and deduplicates entries
-3. Concurrent pipeline queries Gemini (with Google Search grounding) for each product
-4. Results stream back via SSE as each product completes
-5. Extended Support Unit (ESU) availability is noted
-6. All results cached to SQLite for future queries
-
-### RAG Mode (Ollama + Local DB) — *IN DEVELOPMENT*
-1. User asks a natural language question about products (via terminal: `python dbchat.py`)
-2. `retrieve_relevant_products()` analyzes keywords and filters database intelligently
-3. Max 10 products formatted as readable context
-4. Context + question sent to local Ollama model
-5. Ollama generates natural language answer based solely on provided data
-6. No SQL exposed to user; no external API calls
-
-> **Access:** Currently available only via terminal on development server. Web frontend integration in progress.
-
-### ChatSession (Multi-Turn) — *IN DEVELOPMENT*
-1. Create a `ChatSession` instance with model + API key
-2. Send messages via `send_message()`
-3. Conversation history maintained automatically
-4. Token counting prevents hitting model limits
-5. Each session isolated from others
-
-> **Access:** Currently available only via terminal on development server. Web frontend integration in progress.
+Automatically created at `./data/asset_cache.db` on first run.
 
 ---
 
 ## Development
 
-Code changes to `webpage.py`, `classes.py`, `prompt.py`, `prompt.txt`, and `templates/` are volume-mounted — no rebuild is needed. Simply restart the container:
+### Local Changes (No Rebuild Needed)
+
+Changes to `webpage.py`, `unified_chat.py`, `templates/`, `static/css/`, or `prompts/` are live-updated. Restart the container:
 
 ```bash
-docker-compose restart
+docker compose restart
 ```
 
-A full rebuild is only needed when `requirements.txt` or the `Dockerfile` itself changes:
+### Rebuild (When Dependencies Change)
+
+Rebuild when `requirements.txt` or `Dockerfile` is modified:
 
 ```bash
-docker-compose up --build
+docker compose up --build -d
 ```
 
-### Running Tests
-
-Test suites are available for all components:
+### View Logs
 
 ```bash
-# ChatSession context management (9 tests) — IN DEVELOPMENT
-python test_chat_session.py
-
-# Ollama connectivity — IN DEVELOPMENT
-python test_ollama_setup.py
-
-# Database integration
-python test_db_integration.py
-
-# RAG retrieval + LLM answering — IN DEVELOPMENT
-python test_rag_mode.py
-
-# Optimization validation — IN DEVELOPMENT
-python test_improved_ollama.py
+docker compose logs -f web
 ```
 
-### Testing Development Features
+---
 
-**To test Ollama RAG mode interactively:**
+## Testing
+
+Run regression tests locally:
+
 ```bash
-python dbchat.py
-# Then ask questions at the prompt (e.g., "Show me all software products")
-# Commands: exit, quit, models, schema, all
+# Activate venv
+source .venv/bin/activate  # or your venv path
+
+# Run pytest
+pytest tests/test_fixes.py -v
 ```
 
-**To test ChatSession programmatically:**
-```python
-from chat import ChatSession
-session = ChatSession(model="gemini-1.5-flash", api_key="your-key")
-response = session.send_message("What hardware expires in 2026?")
-print(response)
+**Tests Cover:**
+- Retrigger preview/confirm save flow
+- Selected-row export functionality
+- EOS expiration date checking
+- Classification validation
+- Chat retrieval consistency
+- Response grounding fallback
+
+---
+
+## Troubleshooting
+
+### App Won't Start
+```bash
+# Check logs
+docker compose logs web
+
+# Rebuild from scratch
+docker compose down
+docker compose up --build -d
 ```
+
+### Chat Not Finding Assets
+- Ensure assets are imported to database (run pipeline at least once)
+- Verify database file exists at `/app/data/asset_cache.db`
+- Check Gemini API key is valid and has quota
+
+### EOS Status Not Showing
+- Verify NTP time is accessible (app logs will show "Warning: NTP request failed" if not)
+- Clear browser cache: Some cached responses may not have the `is_eos_passed` flag
+- Retrigger individual assets to refresh timestamps
+
+### Export Not Working
+- Ensure at least one row is checked
+- Check browser console for errors (F12)
+- Verify CSV filename doesn't conflict with OS restrictions
 
 ---
 
 ## Security Notes
 
-- `keys.json` **must not be committed to version control** — add it to `.gitignore`
-- Set a strong `APP_SECRET_KEY` and `APP_ADMIN_PASSWORD` in production via `.env`
-- For hashed passwords, generate with `werkzeug.security.generate_password_hash` and set `APP_ADMIN_PASSWORD_HASH`
-- The app runs as a single Gunicorn worker (required for in-memory result caching to work correctly across requests)
-- Ollama instance should be isolated to trusted networks (no authentication by default)
+- ⚠️ Never commit `keys.json` or `.env` — add to `.gitignore`
+- 🔐 Set a strong `APP_SECRET_KEY` and `APP_ADMIN_PASSWORD` in production
+- 🛡️ For production, use `APP_ADMIN_PASSWORD_HASH` with `werkzeug.security.generate_password_hash()`
+- 🚨 Gemini API key has billing implications — monitor usage at [Google Cloud Console](https://console.cloud.google.com/)
+
+---
+
+## Deployment
+
+### Docker
+
+Production-ready Docker setup included. Customize:
+
+1. Set environment variables in `.env`
+2. Mount `keys.json` securely
+3. Configure reverse proxy (nginx/Caddy)
+4. Enable HTTPS
+5. Use strong passwords and session keys
+
+### Example Nginx Reverse Proxy
+
+```nginx
+server {
+    listen 443 ssl http2;
+    server_name yourdomain.com;
+
+    ssl_certificate /path/to/cert.pem;
+    ssl_certificate_key /path/to/key.pem;
+
+    location / {
+        proxy_pass http://localhost:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}
+```
+
+---
+
+## Roadmap
+
+- ✅ Ask AI chat with RAG retrieval
+- ✅ Retrigger preview + confirmation
+- ✅ Selected-row export
+- ✅ EOS status indicators with NTP time sync
+- ✅ Chat retrieval grounding
+- ⏳ Bulk import from vendor APIs
+- ⏳ Support tier lifecycle tracking
+- ⏳ Alert notifications (Slack, email)
+- ⏳ Advanced analytics dashboard
 
 ---
 
 ## License
 
 MIT
+
+---
+
+## Support
+
+For issues, questions, or feature requests, visit [GitHub Issues](https://github.com/danieltobiastan97/hardware-eos/issues).
