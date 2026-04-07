@@ -28,8 +28,11 @@ from prompt import keys_and_prompt_setup, client_setup, Spinner, chat_client_set
 # ═══════════════════════════════════════════════════════════════════════════
 
 # Database Configuration
-DATABASE_URL = "sqlite:///./data/asset_cache.db"
-DB_PATH = "./data/asset_cache.db"
+# Build database path using absolute directory
+DB_DIR = SCRIPT_DIR / "data"
+DB_DIR.mkdir(parents=True, exist_ok=True)
+DB_PATH = str(DB_DIR / "asset_cache.db")
+DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 # Gemini Configuration
 GEMINI_MODEL = "gemini-2.5-flash"
@@ -446,6 +449,10 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
             full_message = "\n\n".join(message_parts)
             
             response = self.gemini_chat.send_message(full_message)
+            
+            # Validate response before accessing text
+            if not response or not hasattr(response, 'text'):
+                raise ValueError("Invalid response from Gemini API: missing text attribute")
             response_text = response.text
             
             # Estimate tokens

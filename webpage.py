@@ -402,8 +402,10 @@ def run_pipeline():
 
             if not skip_cache:
                 # 1. Check database first (persistent cache)
-                db_product = db_session.query(__import__('models').ProductEOS).filter(
-                    __import__('sqlalchemy').func.lower(__import__('models').ProductEOS.name) == name.strip().lower()
+                from models import ProductEOS
+                from sqlalchemy import func
+                db_product = db_session.query(ProductEOS).filter(
+                    func.lower(ProductEOS.name) == name.strip().lower()
                 ).first()
 
                 if db_product:
@@ -470,8 +472,10 @@ def run_pipeline():
                                         created_timestamp=ntp_time
                                     )
                                     # Store support tiers if present
-                                    db_product = db_session.query(__import__('models').ProductEOS).filter(
-                                        __import__('sqlalchemy').func.lower(__import__('models').ProductEOS.name) == name.strip().lower()
+                                    from models import ProductEOS
+                                    from sqlalchemy import func
+                                    db_product = db_session.query(ProductEOS).filter(
+                                        func.lower(ProductEOS.name) == name.strip().lower()
                                     ).first()
                                     if db_product and result.get('Support Tiers'):
                                         for tier in result['Support Tiers']:

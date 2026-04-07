@@ -143,7 +143,11 @@ async def process_line(string, client, config, instruct):
         contents=instruct + ' ' + string,
         config=config
     )
-        json_response = "" #
+        json_response = ""
+        # Validate response has content before accessing
+        if not response or not response.candidates or not response.candidates[0].content.parts:
+            print(f"Error: Empty or invalid response for {string}")
+            return None
         for part in response.candidates[0].content.parts:
             if part.text:
                 json_response += part.text
@@ -167,7 +171,7 @@ async def ai_main(eos_list, instruct, client, config):
 
     while unsuccess and retry_count < retry_limit:
         print(f"Retrying {len(unsuccess)} items...")
-        retry_tasks = [process_line(item, client, config) for item in unsuccess]
+        retry_tasks = [process_line(item, client, config, instruct) for item in unsuccess]
         retry_results = await asyncio.gather(*retry_tasks)
         retry_success, unsuccess = Processing.error_cache(retry_results, unsuccess)
         
