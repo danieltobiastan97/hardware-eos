@@ -4,6 +4,7 @@ Combines RAG database retrieval with Google Gemini backend
 """
 
 import json
+import re
 import requests
 import warnings
 import os
@@ -111,6 +112,27 @@ def is_vague_query(user_query: str) -> bool:
     Returns True if the query appears to be asking for bulk database content.
     """
     query_lower = user_query.lower()
+
+    # If user includes version/year markers, treat as specific.
+    if any(ch.isdigit() for ch in user_query):
+        return False
+
+    # If query contains at least two meaningful non-generic tokens,
+    # it's likely targeting a specific asset (e.g. "adobe photoshop").
+    generic_terms = {
+        'asset', 'assets', 'product', 'products', 'item', 'items',
+        'hardware', 'software', 'date', 'dates', 'eos', 'eol',
+        'lifecycle', 'summary', 'table', 'overview', 'list', 'all'
+    }
+    _STOP = {
+        'for', 'the', 'and', 'what', 'when', 'does', 'is', 'are',
+        'will', 'has', 'have', 'end', 'of', 'support', 'about',
+        'can', 'you', 'tell', 'me', 'show', 'give', 'please'
+    }
+    tokens = [t for t in query_lower.replace('/', ' ').replace('-', ' ').split() if len(t) > 2 and t not in _STOP]
+    specific_tokens = [t for t in tokens if t not in generic_terms]
+    if len(specific_tokens) >= 2:
+        return False
     
     # Vague triggers: asking for "all", "everything", "list", "dump", "summary", "table", etc.
     vague_triggers = [
@@ -139,6 +161,16 @@ def retrieve_relevant_products(user_query: str, limit: int = 10, session_overrid
     print(f"📄 Retrieving relevant data...", end=" ", flush=True)
     
     try:
+        # Keep chat reads fresh when using long-lived sessions.
+        try:
+            _session.rollback()
+        except Exception:
+            pass
+        try:
+            _session.expire_all()
+        except Exception:
+            pass
+
         query_lower = user_query.lower()
         
         # ── 1. Name-based search first ─────────────────────────────────────
@@ -211,6 +243,75 @@ def retrieve_relevant_products(user_query: str, limit: int = 10, session_overrid
     except Exception as e:
         print(f"❌")
         return f"Error retrieving data: {str(e)}"
+
+
+def _context_has_results(context: str) -> bool:
+    """Return True if context contains concrete DB product rows."""
+    if not context:
+        return False
+    if context in {"No matching products found in the database.", "Database not initialized"}:
+        return False
+    return "Database Results:" in context and bool(re.search(r"\n\d+\.\s+", context))
+
+
+def _looks_like_missing_data_response(response_text: str) -> bool:
+    """Detect model responses that incorrectly claim DB data is unavailable."""
+    if not response_text:
+        return False
+    normalized = response_text.lower()
+    miss_patterns = [
+        "not in the current database",
+        "not in the database",
+        "information isn't in the current database",
+        "information is not in the current database",
+        "data is not available",
+        "not available in the database",
+        "consult the vendor",
+        "add that asset"
+    ]
+    return any(p in normalized for p in miss_patterns)
+
+
+def _synthesize_response_from_context(user_message: str, context: str) -> str:
+    """Build a deterministic answer from retrieved rows when model grounding fails."""
+    products = []
+    blocks = re.split(r"\n(?=\d+\.\s+)", context)
+    for block in blocks:
+        name_match = re.search(r"^\s*\d+\.\s+(.+)$", block, flags=re.MULTILINE)
+        type_match = re.search(r"^\s*Type:\s+(.+)$", block, flags=re.MULTILINE)
+        eos_match = re.search(r"^\s*EOS Date:\s+(.+)$", block, flags=re.MULTILINE)
+        summary_match = re.search(r"^\s*Summary:\s+(.+)$", block, flags=re.MULTILINE)
+        if not name_match:
+            continue
+        products.append({
+            "name": name_match.group(1).strip(),
+            "type": type_match.group(1).strip() if type_match else "Unknown",
+            "eos": eos_match.group(1).strip() if eos_match else "Unknown",
+            "summary": summary_match.group(1).strip() if summary_match else ""
+        })
+
+    if not products:
+        return "I found related entries in the database, but I could not format a reliable answer from them. Please try your query again with the exact asset name."
+
+    lines = [
+        "# Asset Lifecycle Result",
+        f"Based on current database entries related to your query \"{user_message}\":",
+        "",
+        "| Asset | Type | EOS Date |",
+        "|---|---|---|",
+    ]
+    for p in products[:3]:
+        lines.append(f"| {p['name']} | {p['type']} | {p['eos']} |")
+
+    primary = products[0]
+    if primary["summary"]:
+        lines.extend([
+            "",
+            "## Notes",
+            f"- {primary['summary']}"
+        ])
+
+    return "\n".join(lines)
 
 
 
@@ -442,6 +543,16 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
         
         # Step 3: Send to Gemini
         result = self._send_gemini(user_message, context)
+
+        # If retrieval found DB rows but model claims data is missing,
+        # return a deterministic response from retrieved context instead.
+        if (
+            result.get('success')
+            and _context_has_results(context)
+            and _looks_like_missing_data_response(result.get('response', ''))
+        ):
+            result['response'] = _synthesize_response_from_context(user_message, context)
+            result['backend'] = 'RAG-Guardrail'
         
         # Step 4: Add assistant response to history if successful
         if result['success'] and result['response']:
@@ -482,10 +593,16 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
                 pass
             
             try:
-                # Build message with proper context
+                # Build message with strict grounding rules when DB context exists.
                 message_to_send = user_message
                 if context and context != "No matching products found in the database.":
-                    message_to_send = f"Context from database:\\n{context}\\n\\n{user_message}"
+                    message_to_send = (
+                        "Use ONLY the database context below as source of truth for asset existence and lifecycle dates. "
+                        "If products are listed in the context, do NOT claim they are missing from the database. "
+                        "Answer the user's question directly from those listed entries.\\n\\n"
+                        f"Context from database:\\n{context}\\n\\n"
+                        f"User question:\\n{user_message}"
+                    )
                 
                 response = self.gemini_chat.send_message(message_to_send)
                 
@@ -562,7 +679,7 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
                 'response': response_text,
                 'backend': 'Gemini',
                 'model': GEMINI_MODEL,
-                'context_used': bool(context),
+                'context_used': bool(context and context != "No matching products found in the database."),
                 'tokens_used': self.estimated_tokens_used
             }
             

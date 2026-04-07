@@ -131,6 +131,12 @@ def _normalize_eos_date_for_storage(value):
     return eos_date
 
 
+def _is_hw_sw_classified(value):
+    """Return True only for explicit Hardware/Software classifications."""
+    text = str(value or '').strip().lower()
+    return ('hardware' in text) or ('software' in text)
+
+
 def _humanize_eos_for_export(value):
     """Convert internal placeholder date into user-friendly export text."""
     if value is None:
@@ -528,12 +534,11 @@ def run_pipeline():
                             print(f"  Hardware/Software: {result.get('Hardware/Software', 'N/A')}")
                             print(f"  EOS Date: {result.get('EOS Date', 'N/A')}")
                             
-                            # Skip database persistence for Unknown/N.A classifications
-                            hw_sw_type = result.get('Hardware/Software', '').lower()
+                            # Persist only explicit Hardware/Software classifications.
+                            hw_sw_raw = result.get('Hardware/Software', '')
                             eos_date = result.get('EOS Date', '2099-12-31')
-                            if hw_sw_type in ('unknown', 'n.a', 'na'):
-                                # Do not persist Unknown items to database
-                                print(f"[DB] SKIPPING unknown item: {name}")
+                            if not _is_hw_sw_classified(hw_sw_raw):
+                                print(f"[DB] SKIPPING unclassified item: {name} (Hardware/Software={hw_sw_raw})")
                                 pass
                             # Store in database - use placeholder if date is missing or invalid
                             else:
@@ -716,9 +721,9 @@ def refresh_item():
         if missing:
             return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
 
-        hw_sw_type = str(result.get('Hardware/Software', '')).lower()
-        if hw_sw_type in ('unknown', 'n.a', 'na'):
-            return jsonify({"error": "Cannot save Unknown/N.A classifications."}), 400
+        hw_sw_type = result.get('Hardware/Software', '')
+        if not _is_hw_sw_classified(hw_sw_type):
+            return jsonify({"error": "Cannot save items that are not classified as Hardware/Software."}), 400
 
         eos_date_to_save = _normalize_eos_date_for_storage(result.get('EOS Date'))
 

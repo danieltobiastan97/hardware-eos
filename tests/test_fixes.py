@@ -181,6 +181,36 @@ def test_patch_invalid_missing_data_returns_400_and_keeps_db_unchanged(client_an
     assert after.eos_date == before_eos
 
 
+def test_patch_non_hw_sw_classification_returns_400_and_keeps_db_unchanged(client_and_session):
+    client, session, ids = client_and_session
+    product_id = ids["p3"]
+
+    before = session.query(ProductEOS).filter(ProductEOS.id == product_id).first()
+    assert before is not None
+    before_summary = before.summary
+    before_type = before.hardware_software
+
+    payload = {
+        "Name": "iPhone 16 Pro",
+        "Summary": "Should not persist",
+        "Hardware/Software": "N/A",
+        "EOS Date": "2031-01-01",
+        "Support Model": "Version-Based",
+        "Support Tiers": [],
+        "Source URLs": [],
+        "Confidence": 0.5,
+    }
+
+    resp = client.patch("/refresh-item", json={"id": product_id, "result": payload})
+    assert resp.status_code == 400
+
+    session.expire_all()
+    after = session.query(ProductEOS).filter(ProductEOS.id == product_id).first()
+    assert after is not None
+    assert after.summary == before_summary
+    assert after.hardware_software == before_type
+
+
 def test_export_with_valid_selected_ids_returns_only_those_rows(client_and_session):
     client, _session, ids = client_and_session
 
