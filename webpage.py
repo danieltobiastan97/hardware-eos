@@ -55,6 +55,26 @@ else:
 db_engine, db_session = init_database(db_path)
 # Ensure all tables are created
 Base.metadata.create_all(db_engine)
+
+# HIGH #7 FIX: Verify all required tables exist after creation
+print("📋 Verifying database schema...", end=" ")
+try:
+    with db_engine.connect() as conn:
+        inspector_query = text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('product_eos', 'support_tier', 'asset_cache')"
+        )
+        result = conn.execute(inspector_query)
+        existing_tables = {row[0] for row in result}
+        required_tables = {'product_eos', 'support_tier', 'asset_cache'}
+        
+        if existing_tables == required_tables:
+            print("✓")
+        else:
+            missing = required_tables - existing_tables
+            print(f"⚠ Missing tables: {missing}")
+except Exception as e:
+    print(f"⚠ Could not verify tables: {e}")
+
 product_repo = ProductEOSRepo(db_session)
 
 # Store the last uploaded lists and AI results cache

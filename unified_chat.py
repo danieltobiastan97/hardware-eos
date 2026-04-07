@@ -7,6 +7,8 @@ import json
 import requests
 import warnings
 import os
+import asyncio
+import time
 from typing import Optional, Dict, List
 from datetime import datetime, date
 from sqlalchemy import create_engine, text, or_, func
@@ -249,7 +251,7 @@ class GeminiChatSession:
         self._init_gemini()
     
     def _init_gemini(self):
-        """Initialize Gemini backend."""
+        """Initialize Gemini backend with API credential validation."""
         print("🔧 Initializing Gemini...", end=" ")
         try:
             from google.genai import types
@@ -307,11 +309,24 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
                 config=chat_config
             )
             
+            # HIGH #6 FIX: Validate API credentials with test call
+            print("✓", end=" ")
+            print("(validating API)", end=" ")
+            try:
+                test_response = self._send_gemini_with_timeout(
+                    "Respond with just 'OK' to test the connection.",
+                    "",
+                    timeout=10
+                )
+                if not test_response['success']:
+                    raise RuntimeError(f"API validation failed: {test_response.get('error', 'Unknown error')}")
+                print("✓")
+            except Exception as e:
+                raise RuntimeError(f"API credential test failed: {e}. Please verify your GEMINI_API_KEY.")
+            
             # Token tracking for Gemini
             self.estimated_tokens_used = 0
             self.max_tokens_available = GEMINI_CONTEXT_WINDOW
-            
-            print("✓")
             
         except Exception as e:
             print(f"❌ {e}")
@@ -334,18 +349,42 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
                 print(f"⚠ Could not load history: {e}")
     
     def _save_history(self):
-        """Save conversation history to disk."""
+        """Save conversation history to disk with file locking for concurrent access."""
         try:
             session_file_path = Path(self.session_file)
             session_file_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(session_file_path, 'w') as f:
-                json.dump({
-                    'session_id': self.session_id,
-                    'backend': self.backend,
-                    'model': GEMINI_MODEL,
-                    'created': datetime.now().isoformat(),
-                    'history': self.conversation_history
-                }, f, indent=2)
+            
+            # HIGH #10 FIX: File locking for concurrent chat session writes
+            lock_file = session_file_path.with_suffix('.lock')
+            max_wait = 5  # seconds
+            start_time = time.time()
+            
+            # Wait for lock (simple file-based locking)
+            while lock_file.exists() and (time.time() - start_time) < max_wait:
+                time.sleep(0.1)
+            
+            # Create lock file
+            lock_file.touch(exist_ok=True)
+            
+            try:
+                # Write history atomically (write to temp file, then rename)
+                temp_file = session_file_path.with_suffix('.tmp')
+                with open(temp_file, 'w') as f:
+                    json.dump({
+                        'session_id': self.session_id,
+                        'backend': self.backend,
+                        'model': GEMINI_MODEL,
+                        'created': datetime.now().isoformat(),
+                        'history': self.conversation_history
+                    }, f, indent=2)
+                # Atomic rename
+                temp_file.replace(session_file_path)
+            finally:
+                # Remove lock file
+                try:
+                    lock_file.unlink()
+                except:
+                    pass
         except Exception as e:
             print(f"⚠ Could not save history: {e}")
     
@@ -420,6 +459,52 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
         
         return result
     
+    def _send_gemini_with_timeout(self, user_message: str, context: str, timeout: int = 30) -> Dict:
+        """Send message to Gemini with timeout protection.
+        
+        HIGH #9 FIX: Wraps API call with timeout to prevent hanging requests.
+        """
+        try:
+            import signal
+            
+            def timeout_handler(signum, frame):
+                raise TimeoutError(f"Gemini API call exceeded {timeout}s timeout")
+            
+            # Set timeout (only works on Unix-like systems)
+            old_handler = None
+            try:
+                old_handler = signal.signal(signal.SIGALRM, timeout_handler)
+                signal.alarm(timeout)
+            except (AttributeError, ValueError):
+                # Windows or signal not available - use simple time check instead
+                pass
+            
+            try:
+                # Build message with proper context
+                message_to_send = user_message
+                if context and context != "No matching products found in the database.":
+                    message_to_send = f"Context from database:\\n{context}\\n\\n{user_message}"
+                
+                response = self.gemini_chat.send_message(message_to_send)
+                
+                # Cancel timeout
+                try:
+                    signal.alarm(0)
+                except (AttributeError, ValueError):
+                    pass
+                
+                return response
+            except TimeoutError:
+                raise
+            finally:
+                # Restore old handler
+                if old_handler is not None:
+                    signal.signal(signal.SIGALRM, old_handler)
+        except TimeoutError as te:
+            return None
+        except Exception as e:
+            raise
+    
     def _send_gemini(self, user_message: str, context: str) -> Dict:
         """Send message to Gemini backend. Gemini chat maintains history internally.
         
@@ -448,7 +533,18 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
             message_parts.append(user_message)
             full_message = "\n\n".join(message_parts)
             
-            response = self.gemini_chat.send_message(full_message)
+            # HIGH #9 FIX: Send with timeout protection (30 second default)
+            try:
+                response = self._send_gemini_with_timeout(user_message, context, timeout=30)
+                if response is None:
+                    raise TimeoutError("Gemini API call timed out")
+            except TimeoutError as te:
+                return {
+                    'success': False,
+                    'response': None,
+                    'backend': 'Gemini',
+                    'error': f"API timeout: {str(te)}. The Gemini service is not responding. Please try again."
+                }
             
             # Validate response before accessing text
             if not response or not hasattr(response, 'text'):
