@@ -7,6 +7,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet"/>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
   <script src="https://unpkg.com/@phosphor-icons/web"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <link rel="stylesheet" href="/static/css/styles.css?v=20260406b">
 </head>
 <body>
@@ -22,7 +23,7 @@
       </linearGradient>
     </defs>
   </svg>
-  <span>Ask AI</span>
+  <span>Ask AI <span style="font-size: 0.7em; opacity: 0.7;">(Beta)</span></span>
 </button>
 
 <!-- AI Chat Popup Modal -->
@@ -40,7 +41,7 @@
             </linearGradient>
           </defs>
         </svg>
-        <h2>Ask AI</h2>
+        <h2>Ask AI <span style="font-size: 0.7em; font-weight: 400; opacity: 0.7;">(Beta)</span></h2>
       </div>
       <div class="ai-chat-header-actions">
         <button class="ai-chat-clear" id="aiChatClear" title="Clear chat history">Clear</button>
@@ -1678,8 +1679,24 @@
   function _appendBubble(text, role) {
     const div = document.createElement('div');
     div.className = 'ai-bubble ' + (role === 'user' ? 'ai-bubble-user' : 'ai-bubble-ai');
-    div.innerHTML = '<p></p><span class="ai-bubble-time">' + _aiNow() + '</span>';
-    div.querySelector('p').textContent = text;
+    div.innerHTML = '<div class="ai-bubble-content"></div><span class="ai-bubble-time">' + _aiNow() + '</span>';
+    const content = div.querySelector('.ai-bubble-content');
+    
+    if (role === 'ai') {
+      try {
+        marked.setOptions({
+          breaks: true,
+          gfm: true,
+          mangle: false
+        });
+        content.innerHTML = marked.parse(text);
+      } catch (e) {
+        content.textContent = text;
+      }
+    } else {
+      content.textContent = text;
+    }
+    
     aiChatThread.appendChild(div);
     aiChatThread.scrollTop = aiChatThread.scrollHeight;
     if (aiChatThread.parentElement) {
@@ -1769,6 +1786,43 @@
     const isOpen = localStorage.getItem('aiChatOpen') === 'true';
     if (isOpen) {
       aiChatModal.classList.add('active');
+    }
+
+    // Add drag-to-right functionality to chat container
+    const chatContainer = document.querySelector('.ai-chat-container');
+    const chatHeader = document.querySelector('.ai-chat-header');
+    if (chatContainer && chatHeader) {
+      let isDragging = false;
+      let startX = 0;
+      let startMarginLeft = 0;
+
+      chatHeader.addEventListener('mousedown', function(e) {
+        // Only drag if not clicking on buttons
+        if (e.target.closest('button')) return;
+        isDragging = true;
+        startX = e.clientX;
+        const marginStr = window.getComputedStyle(chatContainer).marginLeft;
+        startMarginLeft = parseInt(marginStr) || 0;
+        chatHeader.style.cursor = 'grabbing';
+        e.preventDefault();
+      });
+
+      document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        const delta = e.clientX - startX;
+        const containerWidth = chatContainer.offsetWidth;
+        const minMargin = 4;
+        const maxMargin = Math.max(4, window.innerWidth - containerWidth - 4);
+        const newMarginLeft = Math.max(minMargin, Math.min(startMarginLeft + delta, maxMargin));
+        chatContainer.style.marginLeft = newMarginLeft + 'px';
+      });
+
+      document.addEventListener('mouseup', function() {
+        if (isDragging) {
+          isDragging = false;
+          chatHeader.style.cursor = 'grab';
+        }
+      });
     }
 
     // Toggle AI chat modal on button click

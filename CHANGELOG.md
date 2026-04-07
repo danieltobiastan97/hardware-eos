@@ -4,6 +4,34 @@ All notable changes between branches are documented in this file.
 
 ---
 
+## [v1.4] — 2026-04-07
+
+> Security fix for database guardrail enforcement and UI polish for Ask AI feature.
+> **Status:** Production-ready.
+
+### Fixed
+
+- **Database guardrail enforcement** — `db_guardrail.txt` file now properly loaded and applied to Gemini system instruction. Previously created guardrail file was orphaned and not integrated.
+  - Prevents full database dumps on generic queries like "What are the important dates?"
+  - Guardrails prepended to system instruction before sending to Gemini
+  - Fallback error handling if file is missing
+  - **[PRODUCTION - Critical Security Fix]**
+
+### Added
+
+- **Beta label on Ask AI feature** — Visible in modal header and button tooltip to indicate feature is in active development
+  - Header shows "Ask AI (Beta)"
+  - Button tooltip updated
+
+- **Improved table overflow handling** — CSS refinements for better display of Markdown-rendered tables in chat bubbles
+  - Maximum width constraints prevent table expansion beyond bubble boundaries
+  - Word-break handling for long cell content
+  - Reduced padding and font size for compact display
+  - Block display with controlled horizontal overflow
+  - Pre-formatted code blocks now constrained to bubble width
+
+---
+
 ## [v1.3] — 2026-04-06
 
 > New components for natural language database queries and multi-turn conversation management.

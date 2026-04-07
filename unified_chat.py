@@ -97,6 +97,31 @@ Table: support_tier (related to product_eos via product_id)
 """
 
 
+def is_vague_query(user_query: str) -> bool:
+    """
+    Check if a query is too vague and lacks specific asset references.
+    Returns True if the query appears to be asking for bulk database content.
+    """
+    query_lower = user_query.lower()
+    
+    # Vague triggers: asking for "all", "everything", "list", "dump", "summary", "table", etc.
+    vague_triggers = [
+        'what are the', 'show me', 'list all', 'list the', 'give me',
+        'all the', 'every', 'what do you have', 'how many', 'count',
+        'enumerate', 'dump', 'important dates', 'all dates', 'all eos',
+        'all products', 'all assets', 'all items', 'all hardware',
+        'all software', 'everything', 'summary', 'table', 'overview',
+        'list of', 'create a table', 'create a summary', 'show table',
+        'create table', 'asset lifecycle', 'lifecycle summary', 'eos summary'
+    ]
+    
+    for trigger in vague_triggers:
+        if trigger in query_lower:
+            return True
+    
+    return False
+
+
 def retrieve_relevant_products(user_query: str, limit: int = 10, session_override=None) -> str:
     """Retrieve relevant products from database based on user query keywords."""
     _session = session_override or db_session
@@ -227,17 +252,36 @@ class GeminiChatSession:
             
             scraper_client = types.Tool(google_search=types.GoogleSearch())
             
-            system_instruction = """You are an IT asset lifecycle advisor. Your sole purpose is to answer questions about hardware and software End-of-Life (EOS) dates, support status, and related lifecycle information.
+            # Load formatting requirements
+            formatting_instruction = """You are an IT asset lifecycle advisor. Your sole purpose is to answer questions about hardware and software End-of-Life (EOS) dates, support status, and related lifecycle information.
 
 You will be provided with product data from a database as context. Answer questions based ONLY on this provided data.
 
-CONSTRAINTS:
-- Only discuss EOS, EOL, support dates, and lifecycle information for IT assets
-- If asked about your general capabilities, respond: "I'm here to help with questions about asset End-of-Life and support status information."
-- Do not provide information unrelated to IT asset lifecycle
-- If data is not available, clearly state it and suggest checking vendor documentation
-- Be concise and IT-professional in tone"""
+FORMATTING REQUIREMENTS (ALWAYS APPLY):
+- Format all responses using valid Markdown syntax
+- Use **bold** for important terms, product names, and key values
+- Use proper heading levels: # Main Question, ## Details, ### Sub-details
+- Use bullet points (- item) for unordered lists
+- Use numbered lists (1. item) when showing steps, ranked items, or multiple values
+- When presenting data in tabular format, ALWAYS use Markdown tables with | separators
+- Table format: | Header1 | Header2 | Header3 | followed by |---|---|---| then data rows
+- Use code blocks (```text or ```json) for technical details, model numbers, or formatted data
+- Use line breaks between sections for readability
+- Format dates clearly: YYYY-MM-DD or Month Day, Year
+- Only provide structured, readable output — NO raw JSON, NO unformatted text
+
+"""
             
+            # Load database guardrail rules from file
+            db_guardrail = ""
+            try:
+                with open('prompts/db_guardrail.txt', 'r') as f:
+                    db_guardrail = f.read().strip()
+            except Exception as e:
+                print(f"⚠ Could not load db_guardrail.txt: {e}")
+            
+            system_instruction = formatting_instruction + db_guardrail
+
             chat_config = types.GenerateContentConfig(
                 tools=[scraper_client],
                 system_instruction=system_instruction
@@ -307,10 +351,35 @@ CONSTRAINTS:
         # Update token count for this message
         self.conversation_tokens += len(user_message) // 4  # Rough token estimate
         
-        # Step 2: Optionally retrieve database context (RAG)
+        # Step 2: Check if query is too vague (trying to get bulk data)
         context = ""
         if use_rag:
-            context = retrieve_relevant_products(user_message, limit=10, session_override=self._db_session_override)
+            if is_vague_query(user_message):
+                # Refuse to retrieve database for vague queries
+                vague_response = "I can only provide lifecycle information for a specific, named asset. Please provide the name of the asset you'd like to look up."
+                
+                # Add this response to history
+                self.conversation_history.append({
+                    "role": "assistant",
+                    "content": vague_response
+                })
+                self.conversation_tokens += len(vague_response) // 4
+                
+                # Save history
+                self._save_history()
+                
+                return {
+                    'success': True,
+                    'response': vague_response,
+                    'backend': 'Validation',
+                    'context_used': False,
+                    'tokens_used': self.estimated_tokens_used,
+                    'history_length': len(self.conversation_history),
+                    'conversation_tokens': self.conversation_tokens
+                }
+            else:
+                # Retrieve database context for specific queries - limit to 3 products max
+                context = retrieve_relevant_products(user_message, limit=3, session_override=self._db_session_override)
         
         # Step 3: Send to Gemini
         result = self._send_gemini(user_message, context)
