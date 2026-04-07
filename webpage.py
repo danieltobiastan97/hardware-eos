@@ -145,13 +145,38 @@ def _humanize_eos_for_export(value):
     return "No EOS found" if text == "2099-12-31" else text
 
 
+def _is_eos_passed(eos_date_str):
+    """Check if EOS date has passed compared to current NTP time."""
+    if not eos_date_str or eos_date_str in ('2099-12-31', 'No EOS found', 'N/A', ''):
+        return False
+    
+    try:
+        # Parse the EOS date
+        eos_date = parse_date(eos_date_str)
+        if not eos_date:
+            return False
+        
+        # Get current time from NTP
+        current_time = get_ntp_time()
+        
+        # Compare: if current date is past EOS date, it has passed
+        return current_time.date() > eos_date
+    except Exception as e:
+        print(f"Warning: Could not parse EOS date '{eos_date_str}': {e}")
+        return False
+
+
 def _humanize_result_payload(result):
-    """Convert placeholder EOS dates inside API/UI payloads."""
+    """Convert placeholder EOS dates inside API/UI payloads and add EOS status."""
     if not isinstance(result, dict):
         return result
 
     normalized = dict(result)
-    normalized["EOS Date"] = _humanize_eos_for_export(result.get("EOS Date"))
+    eos_date_raw = result.get("EOS Date")
+    normalized["EOS Date"] = _humanize_eos_for_export(eos_date_raw)
+    
+    # Add EOS expiration status flag for frontend rendering
+    normalized["is_eos_passed"] = _is_eos_passed(eos_date_raw)
 
     tiers = result.get("Support Tiers")
     if isinstance(tiers, list):
@@ -499,7 +524,7 @@ def run_pipeline():
                     print(f"[CACHE] Memory HIT: {name}")
                     yield sse("item-done", {
                         "name": name, "type": item_type, "index": index,
-                        "result": _results_cache[cache_key], "cached": True, "cached_from": "memory"
+                        "result": _humanize_result_payload(_results_cache[cache_key]), "cached": True, "cached_from": "memory"
                     })
                     processed += 1
                     continue
@@ -621,7 +646,7 @@ def run_pipeline():
                             
                             yield sse("item-done", {
                                 "name": name, "type": item_type, "index": index, 
-                                "result": result, "cached_from": "api"
+                                "result": _humanize_result_payload(result), "cached_from": "api"
                             })
                     except Exception as e:
                         yield sse("item-error", {"name": name, "type": item_type, "index": index, "error": str(e)})
@@ -777,11 +802,11 @@ def pipeline_cache():
     for i, item in enumerate(hw_list):
         name = item if isinstance(item, str) else item.get("Name", str(item))
         if name in _results_cache:
-            cached_items.append({"name": name, "type": "hw", "index": i, "result": _results_cache[name]})
+            cached_items.append({"name": name, "type": "hw", "index": i, "result": _humanize_result_payload(_results_cache[name])})
     for i, item in enumerate(sw_list):
         name = item if isinstance(item, str) else item.get("Name", str(item))
         if name in _results_cache:
-            cached_items.append({"name": name, "type": "sw", "index": i, "result": _results_cache[name]})
+            cached_items.append({"name": name, "type": "sw", "index": i, "result": _humanize_result_payload(_results_cache[name])})
     return jsonify({"cached": cached_items, "total_cached": len(_results_cache)})
 
 
