@@ -42,11 +42,10 @@
         </svg>
         <h2>Ask AI</h2>
       </div>
-      <div class="ai-db-status" id="aiDbStatus" title="Database status">
-        <span class="ai-db-blob" id="aiDbBlob"></span>
-        <span class="ai-db-label" id="aiDbLabel">DB</span>
+      <div class="ai-chat-header-actions">
+        <button class="ai-chat-clear" id="aiChatClear" title="Clear chat history">Clear</button>
+        <button class="ai-chat-close" id="aiChatClose" title="Close chat">&times;</button>
       </div>
-      <button class="ai-chat-close" id="aiChatClose" title="Close chat">&times;</button>
     </div>
     <div class="ai-chat-content" id="aiChatContent">
       <div class="ai-chat-thread" id="aiChatThread">
@@ -1659,30 +1658,10 @@
   const aiChatBtn    = document.getElementById('aiChatBtn');
   const aiChatModal  = document.getElementById('aiChatModal');
   const aiChatClose  = document.getElementById('aiChatClose');
+  const aiChatClear  = document.getElementById('aiChatClear');
   const aiChatThread = document.getElementById('aiChatThread');
   const aiChatInput  = document.getElementById('aiChatInput');
   const aiChatSend   = document.getElementById('aiChatSend');
-  const aiDbBlob     = document.getElementById('aiDbBlob');
-  const aiDbLabel    = document.getElementById('aiDbLabel');
-
-  async function refreshDbStatus() {
-    try {
-      const res = await fetch('/chat/status');
-      const data = await res.json();
-      if (aiDbBlob && aiDbLabel) {
-        if (data.db_ok) {
-          aiDbBlob.className = 'ai-db-blob ok';
-          aiDbLabel.textContent = 'db initialised';
-        } else {
-          aiDbBlob.className = 'ai-db-blob fail';
-          aiDbLabel.textContent = 'DB offline';
-        }
-      }
-    } catch (_) {
-      if (aiDbBlob) aiDbBlob.className = 'ai-db-blob fail';
-      if (aiDbLabel) aiDbLabel.textContent = 'DB offline';
-    }
-  }
 
   // Set welcome bubble timestamp
   const aiWelcomeTimeEl = document.getElementById('aiWelcomeTime');
@@ -1761,13 +1740,30 @@
     }
   }
 
+  async function clearChat() {
+    try {
+      const res = await fetch('/chat/clear', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        // Clear the chat thread and reset to welcome message
+        aiChatThread.innerHTML = '';
+        const welcomeDiv = document.createElement('div');
+        welcomeDiv.className = 'ai-bubble ai-bubble-ai';
+        welcomeDiv.innerHTML = '<p>Chat cleared. What would you like to check now?</p><span class="ai-bubble-time">' + _aiNow() + '</span>';
+        aiChatThread.appendChild(welcomeDiv);
+        aiChatThread.scrollTop = aiChatThread.scrollHeight;
+        if (aiChatInput) aiChatInput.focus();
+      }
+    } catch (err) {
+      console.error('Error clearing chat:', err);
+    }
+  }
+
   function initAIChat() {
     if (!aiChatBtn || !aiChatModal || !aiChatClose) {
       console.warn('AI Chat elements not found');
       return;
     }
-
-    refreshDbStatus();
 
     // Restore modal state on page load
     const isOpen = localStorage.getItem('aiChatOpen') === 'true';
@@ -1797,6 +1793,15 @@
       aiChatModal.classList.remove('active');
       localStorage.setItem('aiChatOpen', 'false');
     });
+
+    // Clear button
+    if (aiChatClear) {
+      aiChatClear.addEventListener('click', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        clearChat();
+      });
+    }
 
     // Close modal when clicking outside the container
     aiChatModal.addEventListener('click', function(e) {
