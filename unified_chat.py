@@ -209,6 +209,9 @@ class GeminiChatSession:
         self.session_id = session_id or datetime.now().strftime("%Y%m%d_%H%M%S")
         self.session_file = f"{CHAT_HISTORY_DIR}/{self.session_id}.json"
         
+        # Token tracking for conversation (not API calls)
+        self.conversation_tokens = 0  # Tokens used in user + assistant messages
+        
         # Load previous history if session exists
         self._load_history()
         
@@ -265,6 +268,8 @@ CONSTRAINTS:
                     self.conversation_history = data.get('history', [])
                     if self.conversation_history:
                         print(f"📜 Loaded {len(self.conversation_history)} previous message(s)")
+                        # Recalculate conversation tokens from loaded history
+                        self.conversation_tokens = self._count_conversation_tokens()
             except Exception as e:
                 print(f"⚠ Could not load history: {e}")
     
@@ -299,6 +304,8 @@ CONSTRAINTS:
             "role": "user",
             "content": user_message
         })
+        # Update token count for this message
+        self.conversation_tokens += len(user_message) // 4  # Rough token estimate
         
         # Step 2: Optionally retrieve database context (RAG)
         context = ""
@@ -314,12 +321,15 @@ CONSTRAINTS:
                 "role": "assistant",
                 "content": result['response']
             })
+            # Update token count for assistant response
+            self.conversation_tokens += len(result['response']) // 4  # Rough token estimate
         
         # Step 5: Save history
         self._save_history()
         
         # Add history info to result
         result['history_length'] = len(self.conversation_history)
+        result['conversation_tokens'] = self.conversation_tokens
         
         return result
     
@@ -390,6 +400,18 @@ CONSTRAINTS:
         
         return status
     
+    def _count_conversation_tokens(self) -> int:
+        """Count estimated tokens in current conversation history.
+        Uses rough estimate: 1 token ≈ 4 characters."""
+        total = 0
+        for msg in self.conversation_history:
+            total += len(msg.get('content', '')) // 4
+        return total
+    
+    def get_conversation_tokens(self) -> int:
+        """Return current conversation token count."""
+        return self.conversation_tokens
+    
     def get_history(self) -> List[Dict[str, str]]:
         """Get full conversation history."""
         return self.conversation_history
@@ -409,6 +431,7 @@ CONSTRAINTS:
     def clear_history(self):
         """Clear conversation history but keep the session file."""
         self.conversation_history = []
+        self.conversation_tokens = 0
         self._save_history()
         return "✓ Conversation history cleared"
     

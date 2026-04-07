@@ -50,6 +50,11 @@ _results_cache = {}   # name -> result dict
 
 # AI chat sessions keyed by Flask session user (one chat session per logged-in user)
 _chat_sessions = {}   # session_user -> GeminiChatSession
+_chat_session_activity = {}  # session_user -> last_activity_timestamp
+
+# Token limit configuration (1000 tokens per conversation)
+CHAT_TOKEN_LIMIT = 1000
+CHAT_INACTIVITY_TIMEOUT = 30 * 60  # 30 minutes in seconds
 
 # NTP time caching
 _ntp_time_cache = {"timestamp": None, "cached_at": None}
@@ -759,23 +764,44 @@ def get_time():
 # ─────────────────────────────────────────────────────────────────────────────
 
 def _get_chat_session() -> GeminiChatSession:
-    """Return a fresh GeminiChatSession with auto-rotating timestamp-based IDs.
+    """Return the GeminiChatSession for logged-in user, with inactivity timeout.
     
-    This ensures each popup/chat window gets a new session file, preventing
-    any single session from growing unbounded. Old sessions are archived on disk.
+    - Per-user session maintains conversation history within a session
+    - Auto-rotates after 30 minutes of inactivity
+    - Token limit prevents unbounded growth (1000 tokens per conversation)
     """
-    # Generate unique session ID with timestamp (millisecond precision)
-    session_id = datetime.now().strftime("web_%Y%m%d_%H%M%S_%f")[:-3]
-    return GeminiChatSession(
+    user_key = session.get("user", "anon")
+    current_time = time.time()
+    
+    # Check if session exists and hasn't timed out
+    if user_key in _chat_sessions:
+        last_activity = _chat_session_activity.get(user_key, current_time)
+        time_since_activity = current_time - last_activity
+        
+        # Auto-rotate if inactive for 30+ minutes
+        if time_since_activity > CHAT_INACTIVITY_TIMEOUT:
+            print(f"⏱ Session for {user_key} timed out after {time_since_activity:.0f}s")
+            del _chat_sessions[user_key]
+        else:
+            # Update last activity timestamp
+            _chat_session_activity[user_key] = current_time
+            return _chat_sessions[user_key]
+    
+    # Create new session (first time or after timeout)
+    session_id = f"web_{user_key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    new_session = GeminiChatSession(
         session_id=session_id,
         db_session_override=db_session
     )
+    _chat_sessions[user_key] = new_session
+    _chat_session_activity[user_key] = current_time
+    return new_session
 
 
 @app.route('/chat/send', methods=['POST'])
 @login_required
 def chat_send():
-    """Send a message to the AI and return the response."""
+    """Send a message to the AI and return the response with token tracking."""
     data = request.get_json(silent=True) or {}
     message = str(data.get('message', '')).strip()
     if not message:
@@ -783,12 +809,38 @@ def chat_send():
 
     try:
         chat = _get_chat_session()
+        
+        # Check token usage before sending (include the new message cost estimate)
+        conv_tokens = chat.get_conversation_tokens()
+        new_message_est = len(message) // 4  # Rough token estimate
+        projected_tokens = conv_tokens + new_message_est
+        
+        # Warn if approaching limit (80% = 800 tokens)
+        token_limit_warning = projected_tokens > (CHAT_TOKEN_LIMIT * 0.8)
+        token_limit_reached = projected_tokens >= CHAT_TOKEN_LIMIT
+        
+        # Block if limit reached
+        if token_limit_reached:
+            return jsonify({
+                'error': f'Conversation token limit ({CHAT_TOKEN_LIMIT}) reached. Please start a new chat.',
+                'conversation_tokens': conv_tokens,
+                'token_limit': CHAT_TOKEN_LIMIT,
+                'limit_reached': True
+            }), 429  # 429 = Too Many Requests
+        
+        # Send the message
         result = chat.send_message(message, use_rag=True)
+        
         if result['success']:
+            # Get updated token count after message
+            updated_tokens = chat.get_conversation_tokens()
             return jsonify({
                 'response': result['response'],
                 'session_id': chat.session_id,
-                'tokens_used': result.get('tokens_used', 0)
+                'conversation_tokens': updated_tokens,
+                'token_limit': CHAT_TOKEN_LIMIT,
+                'token_warning': token_limit_warning,
+                'history_length': result.get('history_length', 0)
             })
         else:
             return jsonify({'error': result.get('error', 'AI request failed.')}), 500
@@ -807,11 +859,23 @@ def chat_history():
 @app.route('/chat/status', methods=['GET'])
 @login_required
 def chat_status():
-    """Return database initialisation status for the chat UI indicator."""
+    """Return database and chat session status with token usage."""
     try:
         from models import ProductEOS
         count = db_session.query(ProductEOS).count()
-        return jsonify({'db_ok': True, 'product_count': count})
+        
+        # Get current chat session token usage
+        chat = _get_chat_session()
+        conv_tokens = chat.get_conversation_tokens()
+        
+        return jsonify({
+            'db_ok': True,
+            'product_count': count,
+            'conversation_tokens': conv_tokens,
+            'token_limit': CHAT_TOKEN_LIMIT,
+            'token_warning': conv_tokens > (CHAT_TOKEN_LIMIT * 0.8),
+            'session_id': chat.session_id
+        })
     except Exception as e:
         return jsonify({'db_ok': False, 'product_count': 0, 'error': str(e)})
 
@@ -822,13 +886,18 @@ def chat_clear():
     """Clear the current user's chat history and start a fresh session."""
     user_key = session.get("user", "anon")
     if user_key in _chat_sessions:
-        _chat_sessions[user_key].clear_history()
-        # Re-initialize so Gemini gets a fresh chat object
-        _chat_sessions[user_key] = GeminiChatSession(
-            session_id=f"web_{user_key}_new",
-            db_session_override=db_session
-        )
-    return jsonify({'status': 'cleared'})
+        del _chat_sessions[user_key]
+    if user_key in _chat_session_activity:
+        del _chat_session_activity[user_key]
+    
+    # Create fresh session
+    chat = _get_chat_session()
+    return jsonify({
+        'status': 'cleared',
+        'session_id': chat.session_id,
+        'conversation_tokens': 0,
+        'token_limit': CHAT_TOKEN_LIMIT
+    })
 
 
 if __name__ == '__main__':
