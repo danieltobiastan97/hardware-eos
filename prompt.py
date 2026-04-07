@@ -48,34 +48,75 @@ def keys_and_prompt_setup(path='keys.json', prompt_path='prompts/prompt.txt'):
         instruct = pmt_file.read()
     return keys, instruct
 
-def client_setup(keys): # need to include some try except error handling here
-    client = genai.Client(api_key=keys['GEMINI_API_KEY'])
-    print('Client successfully established.')
-    thinking_setup = types.ThinkingConfig(
-        thinking_level="low"  # Options: "minimal", "low", "medium", "high"
-)
-    # Set up the google search tool for the client.
-    scraper_client = types.Tool(google_search=types.GoogleSearch())
-    config = types.GenerateContentConfig(
-    thinking_config=thinking_setup,
-    tools=[scraper_client],
-    temperature=0.0, 
-    response_mime_type="application/json", 
-)
-    return client, config
+def client_setup(keys):
+    """
+    Initialize Gemini client for pipeline processing.
+    Raises an error if API key is missing or invalid.
+    """
+    try:
+        # Check if API key exists
+        if 'GEMINI_API_KEY' not in keys or not keys['GEMINI_API_KEY']:
+            raise ValueError("GEMINI_API_KEY is missing or empty. Please check your keys.json file.")
+        
+        # Initialize client
+        client = genai.Client(api_key=keys['GEMINI_API_KEY'])
+        print('✓ Pipeline client successfully established.')
+        
+        # Set up configuration
+        thinking_setup = types.ThinkingConfig(
+            thinking_level="low"  # Options: "minimal", "low", "medium", "high"
+        )
+        scraper_client = types.Tool(google_search=types.GoogleSearch())
+        config = types.GenerateContentConfig(
+            thinking_config=thinking_setup,
+            tools=[scraper_client],
+            temperature=0.0, 
+            response_mime_type="application/json", 
+        )
+        return client, config
+        
+    except ValueError as ve:
+        error_msg = f"❌ API Key Error: {str(ve)}"
+        print(error_msg)
+        raise RuntimeError(error_msg)
+    except Exception as e:
+        error_msg = f"❌ Failed to initialize Gemini client for pipeline. Please check your API key in keys.json or environment variables. Error: {str(e)}"
+        print(error_msg)
+        raise RuntimeError(error_msg)
 
 def chat_client_setup(keys):
-    client = genai.Client(api_key=keys['GEMINI_API_KEY'])
-    print('Client successfully established.')
-    thinking_setup = types.ThinkingConfig(
-        thinking_level="low"  # Options: "minimal", "low", "medium", "high"
-)
-    # Set up the google search tool for the client.
-    scraper_client = types.Tool(google_search=types.GoogleSearch())
-    config = types.GenerateContentConfig(
-    thinking_config=thinking_setup,
-    tools=[scraper_client])
-    return client, config
+    """
+    Initialize Gemini client for chat feature.
+    Raises an error if API key is missing or invalid.
+    """
+    try:
+        # Check if API key exists
+        if 'GEMINI_API_KEY' not in keys or not keys['GEMINI_API_KEY']:
+            raise ValueError("GEMINI_API_KEY is missing or empty. Please check your keys.json file.")
+        
+        # Initialize client
+        client = genai.Client(api_key=keys['GEMINI_API_KEY'])
+        print('✓ Chat client successfully established.')
+        
+        # Set up configuration
+        thinking_setup = types.ThinkingConfig(
+            thinking_level="low"  # Options: "minimal", "low", "medium", "high"
+        )
+        scraper_client = types.Tool(google_search=types.GoogleSearch())
+        config = types.GenerateContentConfig(
+            thinking_config=thinking_setup,
+            tools=[scraper_client]
+        )
+        return client, config
+        
+    except ValueError as ve:
+        error_msg = f"❌ API Key Error: {str(ve)}"
+        print(error_msg)
+        raise RuntimeError(error_msg)
+    except Exception as e:
+        error_msg = f"❌ Failed to initialize Gemini client for chat. Please check your API key in keys.json or environment variables. Error: {str(e)}"
+        print(error_msg)
+        raise RuntimeError(error_msg)
 
 async def process_line(string, client, config, instruct):
     print(f"Processing item: {string}")
