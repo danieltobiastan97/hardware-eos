@@ -11,14 +11,7 @@ services:
       APP_SECRET_KEY: ${APP_SECRET_KEY:-change-this-secret-key}
       APP_ADMIN_PASSWORD: ${APP_ADMIN_PASSWORD:-changeme}
     volumes:
-      - ./keys.json:/app/keys.json:ro
-      - ./classes.py:/app/classes.py
-      - ./webpage.py:/app/webpage.py
-      - ./models.py:/app/models.py
-      - ./prompt.py:/app/prompt.py
-      - ./prompts/:/app/prompts/
-      - ./templates/:/app/templates/
-      - ./static/:/app/static/
-      - ./data:/app/data
-      - ./chat_sessions:/app/chat_sessions
+      - .:/app:rw
+      - /app/__pycache__
+      - /app/.pytest_cache
     restart: unless-stopped
