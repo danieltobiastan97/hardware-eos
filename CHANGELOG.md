@@ -4,7 +4,7 @@ All notable changes between branches are documented in this file.
 
 ---
 
-## [v1.3] — 2026-04-07
+## [beta/v0.3] — 2026-04-07
 
 > Gemini-powered Ask AI feature with multi-turn conversation management, database guardrails, and EOS status indicators.
 > **Status:** Production-ready with Beta label.
