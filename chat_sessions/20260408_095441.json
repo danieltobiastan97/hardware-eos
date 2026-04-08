@@ -1,0 +1,16 @@
+{
+  "session_id": "20260408_095441",
+  "backend": "gemini",
+  "model": "gemini-2.5-flash",
+  "created": "2026-04-08T09:54:52.220766",
+  "history": [
+    {
+      "role": "user",
+      "content": "What is the EOS for Windows Server 2022"
+    },
+    {
+      "role": "assistant",
+      "content": "# Asset Lifecycle Result\nBased on current database entries related to your query \"What is the EOS for Windows Server 2022\":\n\n| Asset | Type | EOS Date |\n|---|---|---|\n| Windows XP | Software | 2014-04-08 |\n| Adobe Photoshop 2022 | Software | 2023-12-13 |\n| Windows Server 2019 | Software | 2029-01-09 |\n\n## Notes\n- Windows XP reached its final end of support on April 8, 2014, following the conclusion of its extended support phase."
+    }
+  ]
+}

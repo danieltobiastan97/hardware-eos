@@ -153,7 +153,13 @@ def is_vague_query(user_query: str) -> bool:
 
 
 def retrieve_relevant_products(user_query: str, limit: int = 10, session_override=None) -> str:
-    """Retrieve relevant products from database based on user query keywords."""
+    """
+    Retrieve relevant products from database based on user query keywords.
+    
+    STRATEGY: Only return EXACT name/keyword matches to the database.
+    No fallback to random/unrelated products.
+    This ensures accuracy over quantity.
+    """
     _session = session_override or db_session
     if not _session:
         return "Database not initialized"
@@ -173,65 +179,28 @@ def retrieve_relevant_products(user_query: str, limit: int = 10, session_overrid
 
         query_lower = user_query.lower()
         
-        # ── 1. Name-based search first ─────────────────────────────────────
-        # Extract meaningful tokens (>2 chars, skip common stop words)
+        # Extract meaningful tokens for name-based search (>2 chars, skip only generic words)
         _STOP = {'for', 'the', 'and', 'what', 'when', 'does', 'is', 'are',
-                 'will', 'has', 'have', 'eol', 'eos', 'end', 'life', 'of',
-                 'support', 'date', 'about', 'can', 'you', 'tell', 'me'}
+                 'will', 'has', 'have', 'about', 'can', 'you', 'tell', 'me',
+                 'any', 'all', 'with', 'from', 'to', 'in', 'on', 'at', 'by'}
         tokens = [t for t in query_lower.split() if len(t) > 2 and t not in _STOP]
         
-        print(f"   Query tokens: {tokens}")
+        print(f"Search tokens: {tokens}")
         
-        name_results = []
+        results = []
         if tokens:
+            # Build OR filter: product name must contain at least one token
             name_filters = [func.lower(ProductEOS.name).contains(token) for token in tokens]
-            if name_filters:  # Only query if we have filters
-                name_results = (
+            if name_filters:
+                results = (
                     _session.query(ProductEOS)
                     .filter(or_(*name_filters))
-                    .order_by(ProductEOS.eos_date.asc())
+                    .order_by(ProductEOS.confidence.desc())  # Sort by confidence (most reliable first)
                     .limit(limit)
                     .all()
                 )
-                print(f"   Name-based matches: {len(name_results)}")
         
-        # ── 2. Fall back to type/recency filtered list ──────────────────────
-        is_hardware = any(word in query_lower for word in ['hardware', 'cpu', 'processor', 'memory', 'server'])
-        is_software = any(word in query_lower for word in ['software', 'windows', 'linux', 'sql', 'os'])
-        is_recent = any(word in query_lower for word in ['recent', 'latest', 'newest'])
-        is_oldest = any(word in query_lower for word in ['oldest', 'first'])
-        
-        fallback_query = _session.query(ProductEOS)
-        if is_hardware:
-            fallback_query = fallback_query.filter(ProductEOS.hardware_software == 'Hardware')
-        elif is_software:
-            fallback_query = fallback_query.filter(ProductEOS.hardware_software == 'Software')
-        
-        # Determine sort order - randomize if no specific preference
-        if is_oldest:
-            fallback_query = fallback_query.order_by(ProductEOS.eos_date.asc())
-        elif is_recent:
-            fallback_query = fallback_query.order_by(ProductEOS.eos_date.desc())
-        else:
-            # Default: randomize to avoid always returning same products
-            # This uses RANDOM() in SQLite
-            fallback_query = fallback_query.order_by(func.random())
-        
-        fallback_results = fallback_query.limit(limit).all()
-        print(f"   Fallback results: {len(fallback_results)}")
-        
-        # Merge: name matches first, then fill with fallback (deduplicated)
-        seen_ids = {p.id for p in name_results}
-        combined = list(name_results)
-        for p in fallback_results:
-            if p.id not in seen_ids:
-                combined.append(p)
-                seen_ids.add(p.id)
-        results = combined[:limit]
-        
-        print(f"   Final merged results: {len(results)}")
-        
-        print(f"✓ ({len(results)} products)")
+        print(f"✓ Matches: {len(results)}")
         
         if not results:
             return "No matching products found in the database."
