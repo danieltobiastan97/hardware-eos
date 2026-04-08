@@ -1,0 +1,16 @@
+{
+  "session_id": "web_admin_20260408_014808",
+  "backend": "gemini",
+  "model": "gemini-2.5-flash",
+  "created": "2026-04-08T01:48:21.671289",
+  "history": [
+    {
+      "role": "user",
+      "content": "MS SQL Server Database 2019 EOS?"
+    },
+    {
+      "role": "assistant",
+      "content": "# Asset Lifecycle Result\nBased on current database entries related to your query \"MS SQL Server Database 2019 EOS?\":\n\n| Asset | Type | EOS Date |\n|---|---|---|\n| Adobe Photoshop 2019 (Version 20.x) | Software | 2020-10-20 |\n| Adobe Photoshop 2019 | Software | 2020-10-20 |\n| Windows Server 2019 | Software | 2029-01-09 |\n\n## Notes\n- Adobe provides technical support and security fixes only for the current (N) and the immediately preceding (N-1) major versions of Creative Cloud applications."
+    }
+  ]
+}

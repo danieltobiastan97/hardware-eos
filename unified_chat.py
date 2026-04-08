@@ -180,16 +180,20 @@ def retrieve_relevant_products(user_query: str, limit: int = 10, session_overrid
                  'support', 'date', 'about', 'can', 'you', 'tell', 'me'}
         tokens = [t for t in query_lower.split() if len(t) > 2 and t not in _STOP]
         
+        print(f"   Query tokens: {tokens}")
+        
         name_results = []
         if tokens:
             name_filters = [func.lower(ProductEOS.name).contains(token) for token in tokens]
-            name_results = (
-                _session.query(ProductEOS)
-                .filter(or_(*name_filters))
-                .order_by(ProductEOS.eos_date.asc())
-                .limit(limit)
-                .all()
-            )
+            if name_filters:  # Only query if we have filters
+                name_results = (
+                    _session.query(ProductEOS)
+                    .filter(or_(*name_filters))
+                    .order_by(ProductEOS.eos_date.asc())
+                    .limit(limit)
+                    .all()
+                )
+                print(f"   Name-based matches: {len(name_results)}")
         
         # ── 2. Fall back to type/recency filtered list ──────────────────────
         is_hardware = any(word in query_lower for word in ['hardware', 'cpu', 'processor', 'memory', 'server'])
@@ -202,13 +206,19 @@ def retrieve_relevant_products(user_query: str, limit: int = 10, session_overrid
             fallback_query = fallback_query.filter(ProductEOS.hardware_software == 'Hardware')
         elif is_software:
             fallback_query = fallback_query.filter(ProductEOS.hardware_software == 'Software')
+        
+        # Determine sort order - randomize if no specific preference
         if is_oldest:
             fallback_query = fallback_query.order_by(ProductEOS.eos_date.asc())
         elif is_recent:
             fallback_query = fallback_query.order_by(ProductEOS.eos_date.desc())
         else:
-            fallback_query = fallback_query.order_by(ProductEOS.eos_date.asc())
+            # Default: randomize to avoid always returning same products
+            # This uses RANDOM() in SQLite
+            fallback_query = fallback_query.order_by(func.random())
+        
         fallback_results = fallback_query.limit(limit).all()
+        print(f"   Fallback results: {len(fallback_results)}")
         
         # Merge: name matches first, then fill with fallback (deduplicated)
         seen_ids = {p.id for p in name_results}
@@ -218,6 +228,8 @@ def retrieve_relevant_products(user_query: str, limit: int = 10, session_overrid
                 combined.append(p)
                 seen_ids.add(p.id)
         results = combined[:limit]
+        
+        print(f"   Final merged results: {len(results)}")
         
         print(f"✓ ({len(results)} products)")
         
