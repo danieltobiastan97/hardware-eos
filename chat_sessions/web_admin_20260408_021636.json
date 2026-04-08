@@ -1,0 +1,24 @@
+{
+  "session_id": "web_admin_20260408_021636",
+  "backend": "gemini",
+  "model": "gemini-2.5-flash",
+  "created": "2026-04-08T02:16:57.972476",
+  "history": [
+    {
+      "role": "user",
+      "content": "What is the EOS for Cisco 3900"
+    },
+    {
+      "role": "assistant",
+      "content": "# EOS for Cisco 3900\n\nThe End-of-Support (EOS) date for **Cisco 3900** is **2022-12-31**."
+    },
+    {
+      "role": "user",
+      "content": "Show me more detaisl"
+    },
+    {
+      "role": "assistant",
+      "content": "# Details for Cisco 3900\n\n## Product Information\n\n| Field       | Value             |\n| :---------- | :---------------- |\n| **Product** | **Cisco 3900**    |\n| Type        | Hardware          |\n| EOS Date    | 2022-12-31        |\n| Confidence  | 100%              |\n\n## Summary\n\nThe **Cisco 3900 Series ISRs** reached their official end of support on **December 31, 2022**, following an end-of-sale date in 2017.\n\n## Support Tiers\n\nThe following support milestones are recorded for **Cisco 3900**:\n\n*   **End of SW Maintenance Releases**: 2020-12-09\n*   **Last Date of Support**: 2022-12-31"
+    }
+  ]
+}

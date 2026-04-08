@@ -161,7 +161,12 @@ def retrieve_relevant_products(user_query: str, limit: int = 10, session_overrid
     This ensures accuracy over quantity.
     """
     _session = session_override or db_session
+    session_type = 'override' if session_override else 'module-level'
+    session_valid = _session is not None
+    print(f"   [retrieve] Session: {session_type} | Valid: {session_valid} | DBSession obj: {type(db_session).__name__}", flush=True)
+    
     if not _session:
+        print(f"   [retrieve] ERROR: No valid session!", flush=True)
         return "Database not initialized"
     
     print(f"📄 Retrieving relevant data...", end=" ", flush=True)
@@ -183,22 +188,36 @@ def retrieve_relevant_products(user_query: str, limit: int = 10, session_overrid
         _STOP = {'for', 'the', 'and', 'what', 'when', 'does', 'is', 'are',
                  'will', 'has', 'have', 'about', 'can', 'you', 'tell', 'me',
                  'any', 'all', 'with', 'from', 'to', 'in', 'on', 'at', 'by'}
-        tokens = [t for t in query_lower.split() if len(t) > 2 and t not in _STOP]
+        tokens = [t.strip('?!.,;:') for t in query_lower.split() if len(t) > 2 and t.strip('?!.,;:') not in _STOP]
+        tokens = [t for t in tokens if len(t) > 2]  # Remove any that became too short after stripping
         
-        print(f"Search tokens: {tokens}")
+        print(f"Search tokens: {tokens}", flush=True)
         
         results = []
         if tokens:
-            # Build OR filter: product name must contain at least one token
+            # Build name filters for each token
             name_filters = [func.lower(ProductEOS.name).contains(token) for token in tokens]
             if name_filters:
-                results = (
+                # Query products matching ANY token
+                candidates = (
                     _session.query(ProductEOS)
                     .filter(or_(*name_filters))
-                    .order_by(ProductEOS.confidence.desc())  # Sort by confidence (most reliable first)
-                    .limit(limit)
                     .all()
                 )
+                
+                # Score each candidate by how many tokens it matches
+                scored_results = []
+                for product in candidates:
+                    product_name_lower = product.name.lower()
+                    match_count = sum(1 for token in tokens if token in product_name_lower)
+                    scored_results.append((match_count, product.confidence, product))
+                
+                # Sort by: number of tokens matched (desc), then confidence (desc)
+                scored_results.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                
+                # Take top results
+                results = [product for _, _, product in scored_results[:limit]]
+                print(f"Match scores - Top 3: {[(m, c) for m, c, _ in scored_results[:3]]}", flush=True)
         
         print(f"✓ Matches: {len(results)}")
         
@@ -485,6 +504,7 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
             dict with 'success', 'response', and metadata
         """
         from classes import Helper
+        print(f"\n💬 Processing query: {user_message[:80]}", flush=True)
         
         # Step 0: Detect prompt injection attempts
         is_suspicious, reason = Helper.is_suspicious_chat_input(user_message)
@@ -526,7 +546,9 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
         # Step 2: Check if query is too vague (trying to get bulk data)
         context = ""
         if use_rag:
+            print(f"   RAG enabled, checking if query is vague...", flush=True)
             if is_vague_query(user_message):
+                print(f"   ⚠ Query deemed vague, skipping RAG", flush=True)
                 # Refuse to retrieve database for vague queries
                 vague_response = "I can only provide lifecycle information for a specific, named asset. Please provide the name of the asset you'd like to look up."
                 
@@ -551,7 +573,9 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
                 }
             else:
                 # Retrieve database context for specific queries - limit to 3 products max
+                print(f"   Retrieving from DB (session override: {self._db_session_override is not None})", flush=True)
                 context = retrieve_relevant_products(user_message, limit=3, session_override=self._db_session_override)
+                print(f"   Context retrieved: {len(context)} chars, first 100: {context[:100]}", flush=True)
         
         # Step 3: Send to Gemini
         result = self._send_gemini(user_message, context)
@@ -608,6 +632,7 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
                 # Build message with strict grounding rules when DB context exists.
                 message_to_send = user_message
                 if context and context != "No matching products found in the database.":
+                    print(f"   ✓ Using DB context ({len(context)} chars)")
                     message_to_send = (
                         "Use ONLY the database context below as source of truth for asset existence and lifecycle dates. "
                         "If products are listed in the context, do NOT claim they are missing from the database. "
@@ -615,6 +640,8 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
                         f"Context from database:\\n{context}\\n\\n"
                         f"User question:\\n{user_message}"
                     )
+                else:
+                    print(f"   ⚠ No DB context to use")
                 
                 response = self.gemini_chat.send_message(message_to_send)
                 
