@@ -21,7 +21,8 @@ An intelligent asset lifecycle management system powered by **Google Gemini AI**
 | Layer | Technology |
 |---|---|
 | Backend | Python 3.12, Flask 3.1, Gunicorn |
-| AI | Google Gemini (`gemini-2.5-flash`) via `google-genai` SDK |
+| AI Pipe | Google Gemini (`gemini-3-flash-preview`) with Google Grounding (Search Intelligence) |
+| AI Chat/RAG | Google Gemini (`gemini-2.5-flash`) via `google-genai` |
 | Database / ORM | SQLAlchemy, SQLite (`./data/asset_cache.db`) |
 | Data Processing | pandas, openpyxl, numpy |
 | Time Validation | ntplib (NTP time sync with local fallback) |
