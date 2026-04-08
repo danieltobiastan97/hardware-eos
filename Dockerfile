@@ -10,7 +10,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
-COPY classes.py models.py prompt.py webpage.py prompt.txt ./
+COPY classes.py models.py prompt.py webpage.py unified_chat.py ./
+COPY prompts/ prompts/
 COPY templates/ templates/
 
 # uploads/ is created at runtime by the app; no need to COPY it
@@ -24,4 +25,4 @@ EXPOSE 5000
 ENV APP_SECRET_KEY=change-this-secret-key
 ENV APP_ADMIN_PASSWORD=changeme
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "1", "--threads", "8", "--timeout", "120", "webpage:app"]
+CMD ["sh", "-c", "exec gunicorn --bind 0.0.0.0:${PORT:-5000} --workers 1 --threads 8 --timeout 120 webpage:app"]

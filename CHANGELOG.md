@@ -4,57 +4,101 @@ All notable changes between branches are documented in this file.
 
 ---
 
-## [v1.2] — 2026-03-27
+## [v1.3] — 2026-04-07
 
-> Changes present in `v1.2` that are **not** in `main`.
+> Gemini-powered Ask AI feature with multi-turn conversation management, database guardrails, and EOS status indicators.
+> **Status:** Production-ready with Beta label.
 
 ### Added
 
-- **Network Time Protocol (NTP) support** — Product creation timestamps are now sourced from an NTP server (`pool.ntp.org`) instead of local system time, ensuring accurate UTC timestamps. Falls back to local time if NTP is unavailable.
-- **UTC+8 timezone helper** — New `get_current_time_utc8()` function and `/get-time` API endpoint return the current NTP-synced time in UTC+8.
-- **`ntplib==0.4.0`** added to `requirements.txt`.
-- **Database diagnostic scripts** — Two new utility scripts for inspecting the SQLite database:
-  - `check_db.py` — lists all tables and record counts using the raw `sqlite3` module.
-  - `verify_db.py` — verifies database connectivity and record counts via SQLAlchemy.
-- **`chatbot` class scaffold** in `classes.py` — initial skeleton for a future chatbot feature (persistent chat with LLM history support).
-- **Enhanced CSV export** — The `/export-csv` endpoint now falls back to querying the database when the in-memory results cache is empty, allowing historical data to be exported across sessions.
-- **Shift-click range selection for rows** — Row selection in the asset tables now supports shift-click to select or deselect a contiguous range of rows.
+- **Ask AI Chat Feature** — Web-based chat interface powered by Google Gemini 2.5 Flash
+  - Modal popup with Gemini logo button in file inspector toolbar
+  - Natural language queries about EOS/EOL dates for IT assets
+  - Uses Gemini's native web search capability for real-time information
+  - **[PRODUCTION - Beta Status]**
+
+- **GeminiChatSession context management** — `GeminiChatSession` class in `unified_chat.py` for reliable conversation handling
+  - Multi-turn conversation history with automatic persistence
+  - JSON-based session storage in `./chat_sessions/` directory
+  - Per-user session isolation with automatic session IDs
+  - Token tracking and limit enforcement (1000 token limit with 800 token warning)
+  - Graceful handling when token limits reached
+  - Full conversation history accessible and loadable across requests
+
+- **RAG (Retrieval-Augmented Generation) architecture** — Intelligent database filtering to provide relevant context to Gemini
+  - `retrieve_relevant_products()` function filters database based on user query keywords
+  - Detects hardware/software/vendor-specific queries and retrieves only relevant products
+  - Prevents vague queries from returning entire database
+  - SQL query optimization for fast asset lookups
+  - Session freshness enforcement with rollback/expire_all to prevent stale reads
+
+- **Database guardrail enforcement** — SQL queries restricted to product information for security
+  - `guardrail.txt` prompt file enforces database access patterns
+  - Prevents unauthorized data retrieval or injection attacks
+  - Guardrails loaded and prepended to Gemini system instruction
+  - Fallback error handling if guardrail file is missing
+
+- **Ask AI response grounding fix** — Deterministic fallback when model claims data missing
+  - Auto-detects false "not in database" responses when DB context has results
+  - Replaces misgrounded responses with data synthesized directly from retrieved products
+  - Prevents user confusion when assets exist but model claims otherwise
+
+- **EOS Status Indicator** — Real-time End-of-Support date status display
+  - NTP-based date checking against current UTC time
+  - Red outlined badge ("EOS") appears next to expired dates
+  - Applied to all asset rows during pipeline processing and manual refresh
+  - Visible in both initial load and dynamic result updates
+
+- **Markdown response rendering** — marked.js library for formatted chat responses
+  - GitHub Flavored Markdown support
+  - Tables, code blocks, lists, and emphasis preserved from AI responses
+  - Syntax highlighting ready for code blocks
+  - CSS styling for professional appearance
+
+- **Chat UI enhancements**
+  - "(Beta)" label in modal header and button tooltip
+  - Clear chat history button with confirmation dialog
+  - Close modal button with keyboard shortcut (Escape)
+  - Responsive modal sizing with overflow handling
+  - Word-break handling for long table cells and code blocks
+  - Table overflow CSS with max-width constraints and font sizing optimization
 
 ### Fixed
 
-- **Database initialisation path** — Database file path changed from the relative `sqlite:///asset_cache.db` to the persistent container path `sqlite:////app/data/asset_cache.db`, preventing data loss between container restarts.
-- **Default Excel sheet name** — `Helper.preprocess()` now defaults to `sheet='Asset List'` instead of `sheet='Sheet1'` to match the expected spreadsheet format.
-- **Checkbox / row-selection bug** — Reworked `syncSelection()` (previously `resetSelection()`) to preserve existing selections when the table is reloaded, instead of unconditionally resetting all checkboxes. Added `lastToggledRow` tracking and `applyRowSelection()` / `applyRangeSelection()` helpers to make range selection reliable.
-- **NTP timestamp stored on product creation** — `ProductEOSRepo.add_product()` now accepts an optional `created_timestamp` parameter; both the pipeline and the item-refresh endpoint pass the NTP-synced time when persisting products.
+- **Retrigger save flow** — Two-phase preview + confirmation pattern
+  - POST retrigger API call returns preview without persisting to database
+  - Shows old vs new result comparison in expandable modal
+  - PATCH endpoint for explicit user-confirmed save only
+  - Prevents accidental overwrites and data loss
 
-### Changed
+- **Export selected rows only** — CSV export respects checkbox selection
+  - POST endpoint filters to selected asset IDs only
+  - Previously exported entire dataset regardless of selection
+  - Error handling for empty or missing IDs
 
-- **Removed optional database fallback** — Database initialisation no longer wraps in a `try/except`; the app now requires a working database connection on startup (the persistent path is always available inside the container).
-- **Removed redundant cache helpers** — `check_cache()` and `save_to_cache()` functions removed from `webpage.py`; caching logic is handled directly by `ProductEOSRepo`.
-- **`parse_date` import removed** from `webpage.py` (it is used internally by `models.py` only).
+- **Ask AI database retrieval consistency** — Multiple hardening layers
+  - Session refresh before each database query (rollback + expire_all)
+  - Enforced grounding in Gemini prompt when context has results
+  - Auto-fallback to deterministic response if model fails to ground
+  - Proper context_used flag for consistent metadata reporting
 
----
+- **Classification strict enforcement** — Non-Hardware/Software assets blocked from persistence
+  - Pipeline now validates explicit "Hardware" or "Software" classification
+  - Rejects anything ambiguous or unclassified
+  - Updated test coverage to verify rejection behavior
 
-## [main / v1.1] — 2026-03-26
+- **Placeholder EOS date humanization** — User-friendly display of unknown dates
+  - Internal `2099-12-31` placeholder shown as "No EOS found" in UI and exports
+  - Applied across all response payloads, cache returns, and API endpoints
+  - Prevents confusing year-2099 dates visible to end users
 
-> Changes present in `main` that are **not** in `v1.2` (merged via PR #1 from `beta/v1.1`).
+### Technical Details
 
-### Added
-
-- **Docker support** — `Dockerfile`, `compose.yaml`, and `.dockerignore` added for containerised deployment.
-- **SQLAlchemy database cache** — `models.py` introduces `ProductEOS`, `SupportTier`, and `assetCache` ORM models. `db_init.py` handles schema creation.
-- **Session authentication** — Login/logout routes and `login.html` template added; all main routes protected by `@login_required`.
-- **SQLAlchemy-backed result caching** — Pipeline results are persisted to SQLite and served from cache on repeat runs, reducing redundant API calls.
-- **Cache refresh endpoint** — `/refresh-item` allows individual assets to be re-queried and updated in the database.
-- **`README.md`** — Comprehensive project documentation covering features, quickstart, file format, usage, and security notes.
-- **`DATABASE.md`** — Documentation for the database schema and cache behaviour.
-- **`identified_bugs.txt`** — Developer notes tracking known issues.
-- **Test suite** — `database_test.py` and `test_cache_integration.py` added for database model and cache integration testing.
-- **Inline name editing** — Asset names in the table can be edited before triggering the pipeline.
-- **Individual asset search** — Allows searching for a single asset without running the full pipeline.
-
-### Changed
-
-- **Major UI overhaul** — `file-inspector.html` significantly expanded with new controls, styling, and features (row selection, expandable detail rows, cache status indicators, streaming progress).
-- **`requirements.txt`** converted from a binary/lock format to a minimal plain-text format with pinned versions.
-- **`prompt.py`** and `classes.py` updated to support the new pipeline and caching architecture.
+- **Backend**: Flask 3.1 with Gunicorn + Python 3.12
+- **AI Model**: Google Gemini 2.5 Flash with Web Search tool
+- **Database**: SQLAlchemy ORM with SQLite storage (`./data/asset_cache.db`)
+- **Session Storage**: JSON files with 30-minute inactivity timeout for auto-expiry
+- **NTP Integration**: ntplib for accurate time syncing (falls back to local time on failure)
+- **API Key Integration**: Keys loaded from `keys.json` with secure handling
+- **Dependencies**: google-genai==1.68.0, flask==3.1.0, sqlalchemy-based ORM, ntplib
+- **Testing**: pytest with in-memory SQLite, mocked external AI calls, 8 regression tests

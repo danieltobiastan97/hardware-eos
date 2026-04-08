@@ -1,21 +1,18 @@
-# Asset Intelligence Tracker
+# Hardware EOS Tracker
 
-A self-hosted web application that uses **Google Gemini AI** with real-time Google Search grounding to look up End-of-Support (EOS) and End-of-Life (EOL) dates for hardware and software assets. Upload a spreadsheet, select rows, trigger the pipeline, and get structured EOS data with confidence scores and source URLs — all streamed live to your browser.
+An intelligent asset lifecycle management system powered by **Google Gemini AI** for End-of-Support (EOS) date discovery and tracking. Upload a spreadsheet, trigger the AI pipeline, and get structured EOS data streamed live to your browser. Query your database conversationally using Ask AI, and see real-time EOS status badges for any assets that have passed their end-of-support date.
 
 ---
 
 ## Features
 
-- **Bulk file upload** — accepts `.csv` and `.xlsx` files with `Hardware` and `Software` columns
-- **Manual search** — type any product names (semicolon-separated) without uploading a file
-- **Concurrent AI pipeline** — processes multiple assets in parallel via Google Gemini with Google Search grounding
-- **Live streaming results** — results appear row-by-row via Server-Sent Events as the AI finishes each item
-- **Result caching** — already-processed items are served from memory on repeat runs, skipping unnecessary API calls
-- **Expandable detail rows** — click any row to see EOS date, support tiers, confidence breakdown, summary, and source URLs
-- **CSV export** — export all pipeline results to a timestamped CSV file
-- **Inline name editing** — edit asset names in the table before running the pipeline
-- **Row selection** — cherry-pick which rows to process
-- **Session authentication** — simple username/password login protecting all routes
+- **Bulk AI Pipeline** — Upload `.csv` or `.xlsx` files; assets are queried via Google Gemini with Google Search grounding and results stream live via SSE
+- **Ask AI Chat** — Conversational natural language queries grounded in your local database with multi-turn awareness and token tracking
+- **EOS Status Indicators** — Red "EOS" badge on any asset whose end-of-support date has already passed, validated against NTP time
+- **Result Caching** — Processed results saved to SQLite; repeated runs skip redundant API calls
+- **Retrigger & Preview** — Re-query a single asset and preview before/after changes before saving
+- **Selective Export** — Check the rows you want, then export only those to CSV
+- **Session Authentication** — Username/password login protecting all routes
 
 ---
 
@@ -24,40 +21,35 @@ A self-hosted web application that uses **Google Gemini AI** with real-time Goog
 | Layer | Technology |
 |---|---|
 | Backend | Python 3.12, Flask 3.1, Gunicorn |
-| AI | Google Gemini (`gemini-3-flash-preview`) via `google-genai` |
-| Data | pandas, openpyxl, numpy |
+| AI | Google Gemini (`gemini-2.5-flash`) via `google-genai` SDK |
+| Database / ORM | SQLAlchemy, SQLite (`./data/asset_cache.db`) |
+| Data Processing | pandas, openpyxl, numpy |
+| Time Validation | ntplib (NTP time sync with local fallback) |
 | Frontend | Vanilla JS, custom CSS (dark theme, DM Mono font) |
 | Streaming | Server-Sent Events (SSE) |
-| Container | Docker + Docker Compose |
+| Container | Docker, Docker Compose |
 
 ---
 
 ## Prerequisites
 
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/)
-- A **Google Gemini API key** — get one at [Google AI Studio](https://aistudio.google.com/)
+- A **Google Gemini API key** — get one free at [Google AI Studio](https://aistudio.google.com/)
 
 ---
 
-## Quickstart
+## Setup
 
-### 1. Clone the repository
+### 1. Clone the Repository
 
 ```bash
-git clone <your-repo-url>
-cd hardware-eos
+git clone https://github.com/danieltobiastan97/hardware-eos.git
+cd hardware-eos/hardware-eos
 ```
 
-### 2. Configure secrets
+### 2. Create `keys.json`
 
-Create a `.env` file in the project root (never commit this):
-
-```env
-APP_SECRET_KEY=your-random-secret-key
-APP_ADMIN_PASSWORD=your-login-password
-```
-
-Create `keys.json` for the Gemini API key (also never commit this):
+Create `keys.json` in the project root with your Gemini API key:
 
 ```json
 {
@@ -65,55 +57,76 @@ Create `keys.json` for the Gemini API key (also never commit this):
 }
 ```
 
-> `keys.json` is mounted into the container as read-only at runtime. Add it to `.gitignore`.
+> **Never commit this file.** Add `keys.json` to `.gitignore`.
 
-### 3. Build and run
+### 3. Create `.env`
 
-```bash
-docker-compose up --build
+Create a `.env` file in the same directory:
+
+```env
+APP_SECRET_KEY=your-random-secret-key
+APP_ADMIN_PASSWORD=your-login-password
 ```
 
-The app will be available at **http://localhost:8080**
+> Use a long random string for `APP_SECRET_KEY` (e.g. generate with `python -c "import secrets; print(secrets.token_hex(32))"`).
 
-To run in detached mode:
+### 4. Build and Run
 
 ```bash
-docker-compose up --build -d
+docker compose up --build -d
 ```
 
-### 4. Log in
+The app will be available at **http://localhost:3000**
 
-Default credentials (override via `.env`):
+### 5. Log In
+
 - **Username:** `admin`
-- **Password:** `Generate your own password`
+- **Password:** The value you set for `APP_ADMIN_PASSWORD` in `.env`
 
 ---
 
 ## Input File Format
 
-Upload a `.csv` or `.xlsx` file with the following columns:
+Upload a `.csv` or `.xlsx` file with these column headers:
 
 | Hardware | Software |
 |---|---|
-| Dell PowerEdge R720 | Windows Server 2016 |
-| Cisco Catalyst 2960 | Adobe Acrobat DC |
+| Dell PowerEdge R750 | Windows Server 2022 |
+| Cisco Catalyst 3650 | Adobe Acrobat 2024 |
 | HP ProLiant DL380 | |
 
-- Columns must be named exactly `Hardware` and `Software`
-- Either column can be empty or omitted
-- Duplicate entries are automatically removed during preprocessing
+- Headers must be exactly `Hardware` and `Software`
+- Either column can be left empty
+- Duplicates are automatically removed during preprocessing
 
 ---
 
 ## Usage
 
-1. **Upload a file** — drag & drop or click to browse, or switch to manual search mode
-2. **Review the asset tables** — hardware and software rows appear after preprocessing
-3. **Select rows** — all rows are selected by default; uncheck any you want to skip
-4. **Edit names** — hover a row and click the pencil icon to adjust an asset name before processing
-5. **Trigger the pipeline** — click **Trigger AI Intelligence Pipeline**; results stream in live
-6. **Expand rows** — click any completed row for the full detail view
-7. **Export** — use the **Export** button to download all results as a `.csv`
+1. **Upload or Enter** — Drag a file into the upload area, or switch to **Manual Search** to type asset names
+2. **Review Tables** — Preprocessed assets appear in separate hardware and software tables
+3. **Select Rows** — All rows are selected by default; uncheck any you want to skip
+4. **Edit Names** — Click the pencil icon on any row to adjust the name before processing
+5. **Trigger Pipeline** — Click **Trigger AI Intelligence Pipeline**; results stream in live
+6. **Expand Rows** — Click any completed row to see EOS date, support tiers, confidence, sources, and summary
+7. **Retrigger** — Click the refresh icon on a row to re-query; preview changes in the modal before saving
+8. **Export** — Select rows and click **Export CSV** — only checked rows are included
+
+---
+
+## Ask AI
+
+1. Click **Ask AI (Beta)** in the toolbar
+2. Ask any natural language question about your assets (e.g. *"Which hardware expires in 2026?"*)
+3. The system retrieves relevant products from your database and passes them as context to Gemini
+4. Follow-up questions maintain conversation context within the same session
+5. Token usage and limits are shown at the top of the chat panel; the conversation closes at 1000 tokens
+
+---
+
+## EOS Status Indicators
+
+Any asset whose end-of-support date has already passed is marked with a red outlined **EOS** badge in the date column. Dates are validated against time fetched from NTP servers (`pool.ntp.org`), falling back to local system time if NTP is unavailable.
 
 ---
 
@@ -121,57 +134,75 @@ Upload a `.csv` or `.xlsx` file with the following columns:
 
 ```
 hardware-eos/
-├── webpage.py          # Flask app — routes, SSE pipeline, CSV export
-├── prompt.py           # Gemini client setup and async AI call logic
-├── classes.py          # Helper, Cleaner, Processing utility classes
-├── prompt.txt          # System prompt / instructions sent to Gemini
-├── keys.json           # API keys (mount at runtime, do not commit)
-├── requirements.txt    # Python dependencies
-├── Dockerfile
+├── webpage.py                  # Flask routes, SSE pipeline, export, caching
+├── unified_chat.py             # Ask AI chat backend (RAG + Gemini)
+├── models.py                   # SQLAlchemy ORM models (ProductEOS, SupportTier)
+├── classes.py                  # Helper utilities for data processing
+├── prompt.py                   # Gemini client setup and API logic
+├── templates/
+│   ├── file-inspector.html     # Main single-page UI
+│   └── login.html              # Login page
+├── static/css/
+│   └── styles.css              # Dark theme, layout
+├── prompts/
+│   ├── guardrail.txt           # Pipeline system prompt
+│   ├── db_guardrail.txt        # Ask AI safety rules
+│   └── prompt.txt              # Asset lookup instructions
+├── data/
+│   └── asset_cache.db          # SQLite database (auto-created on first run)
+├── chat_sessions/              # Persisted chat history (auto-created)
+├── keys.json                   # Gemini API key (mount at runtime, do not commit)
+├── requirements.txt
 ├── compose.yaml
-└── templates/
-    ├── file-inspector.html   # Main single-page UI
-    └── login.html            # Login page
+├── Dockerfile
+└── CHANGELOG.md
 ```
 
 ---
 
 ## Configuration
 
-All configuration is passed via environment variables:
+Environment variables (set in `.env`, loaded by Docker Compose):
 
-| Variable | Default | Description |
+| Variable | Default | Purpose |
 |---|---|---|
 | `APP_SECRET_KEY` | `change-this-secret-key` | Flask session signing key |
 | `APP_ADMIN_PASSWORD` | `changeme` | Login password for the `admin` user |
-| `APP_ADMIN_PASSWORD_HASH` | *(unset)* | Optional: Werkzeug password hash (overrides plaintext password) |
+| `APP_ADMIN_PASSWORD_HASH` | *(unset)* | Optional Werkzeug password hash — overrides plaintext password |
 
-The Gemini API key is read from `keys.json`, which is volume-mounted into the container.
+The Gemini API key is read exclusively from `keys.json`, which is volume-mounted read-only into the container.
 
 ---
 
 ## Development
 
-Code changes to `webpage.py`, `classes.py`, `prompt.py`, `prompt.txt`, and `templates/` are volume-mounted — no rebuild is needed. Simply restart the container:
+Changes to `webpage.py`, `unified_chat.py`, `classes.py`, `prompt.py`, `templates/`, `static/`, and `prompts/` are volume-mounted and take effect after a container restart — no rebuild needed:
 
 ```bash
-docker-compose restart
+docker compose restart
 ```
 
-A full rebuild is only needed when `requirements.txt` or the `Dockerfile` itself changes:
+Rebuild only when `requirements.txt` or `Dockerfile` changes:
 
 ```bash
-docker-compose up --build
+docker compose up --build -d
+```
+
+View live logs:
+
+```bash
+docker compose logs -f web
 ```
 
 ---
 
 ## Security Notes
 
-- `keys.json` **must not be committed to version control** — add it to `.gitignore`
-- Set a strong `APP_SECRET_KEY` and `APP_ADMIN_PASSWORD` in production via `.env`
-- For hashed passwords, generate with `werkzeug.security.generate_password_hash` and set `APP_ADMIN_PASSWORD_HASH`
-- The app runs as a single Gunicorn worker (required for in-memory result caching to work correctly across requests)
+- Never commit `keys.json` or `.env` — add both to `.gitignore`
+- Set a strong, unique `APP_SECRET_KEY` in production
+- For production deployments, prefer `APP_ADMIN_PASSWORD_HASH` over a plaintext password
+- Monitor Gemini API usage at [Google Cloud Console](https://console.cloud.google.com/) — key has billing implications
+- The app intentionally runs as a single Gunicorn worker to keep in-memory SSE result caching consistent across requests
 
 ---
 

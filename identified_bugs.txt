@@ -1,3 +1,0 @@
-1. Unable to regenerate proper sync on individual item, the upload one works, but the single one when
-edited and then sync still returns the existing old item 
-

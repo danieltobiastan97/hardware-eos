@@ -2,6 +2,7 @@ from sqlalchemy import create_engine, Column, Integer, String, Float, DateTime, 
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.orm import sessionmaker, relationship
 from datetime import datetime, date
+from pathlib import Path
 import json
 
 # ============= Date Parser Utility =============
@@ -18,13 +19,14 @@ def parse_date(date_input):
     Raises:
         ValueError: If string format is invalid
     """
-    if isinstance(date_input, date):
-        # Already a date object
-        return date_input
-    
     if isinstance(date_input, datetime):
-        # Convert datetime to date
+        # datetime is a subclass of date — check it FIRST or the branch below
+        # will match and return the datetime unchanged.
         return date_input.date()
+
+    if isinstance(date_input, date):
+        # Already a plain date object
+        return date_input
     
     if isinstance(date_input, str):
         # Parse ISO format string (YYYY-MM-DD)

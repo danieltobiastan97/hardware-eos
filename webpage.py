@@ -10,31 +10,86 @@ import time
 from io import BytesIO
 from datetime import datetime, timezone, timedelta
 import ntplib
+from pathlib import Path
+from sqlalchemy import text
 
 # Import pipeline functions from prompt.py
 from prompt import keys_and_prompt_setup, client_setup, process_line
 from classes import Helper, Processing
 
 # Import database models
-from models import init_database, ProductEOSRepo, parse_date
+from models import init_database, ProductEOSRepo, parse_date, Base
+
+# Import AI chat backend
+from unified_chat import GeminiChatSession
 
 app = Flask(__name__)
 app.secret_key = os.getenv("APP_SECRET_KEY", "change-this-secret-key")
-UPLOAD_FOLDER = 'uploads'
+
+# Get absolute paths for file operations
+SCRIPT_DIR = Path(__file__).resolve().parent
+UPLOAD_FOLDER = str(SCRIPT_DIR / 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+
+@app.after_request
+def add_no_cache_headers(response):
+    """Disable browser caching for dynamic pages and static assets during active development."""
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+    return response
 
 ADMIN_USERNAME = "admin"
 ADMIN_PASSWORD = os.getenv("APP_ADMIN_PASSWORD", "changeme")
 ADMIN_PASSWORD_HASH = os.getenv("APP_ADMIN_PASSWORD_HASH")
 
 # Initialize database connection (persistent)
-db_engine, db_session = init_database('sqlite:////app/data/asset_cache.db')
+# Use /app/data path for Docker, fallback to local data/ directory
+if os.path.exists('/app/data'):
+    db_path = 'sqlite:////app/data/asset_cache.db'
+else:
+    db_local = SCRIPT_DIR / 'data'
+    db_local.mkdir(parents=True, exist_ok=True)
+    db_path = f'sqlite:///{db_local / "asset_cache.db"}'
+
+db_engine, db_session = init_database(db_path)
+# Ensure all tables are created
+Base.metadata.create_all(db_engine)
+
+# HIGH #7 FIX: Verify all required tables exist after creation
+print("📋 Verifying database schema...", end=" ")
+try:
+    with db_engine.connect() as conn:
+        inspector_query = text(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('product_eos', 'support_tier', 'asset_cache')"
+        )
+        result = conn.execute(inspector_query)
+        existing_tables = {row[0] for row in result}
+        required_tables = {'product_eos', 'support_tier', 'asset_cache'}
+        
+        if existing_tables == required_tables:
+            print("✓")
+        else:
+            missing = required_tables - existing_tables
+            print(f"⚠ Missing tables: {missing}")
+except Exception as e:
+    print(f"⚠ Could not verify tables: {e}")
+
 product_repo = ProductEOSRepo(db_session)
 
 # Store the last uploaded lists and AI results cache
 # Results are keyed by item name so re-running skips already-processed items
 _last_upload = {"hw_list": [], "sw_list": []}
 _results_cache = {}   # name -> result dict
+
+# AI chat sessions keyed by Flask session user (one chat session per logged-in user)
+_chat_sessions = {}   # session_user -> GeminiChatSession
+_chat_session_activity = {}  # session_user -> last_activity_timestamp
+
+# Token limit configuration (1000 tokens per conversation)
+CHAT_TOKEN_LIMIT = 1000
+CHAT_INACTIVITY_TIMEOUT = 30 * 60  # 30 minutes in seconds
 
 # NTP time caching
 _ntp_time_cache = {"timestamp": None, "cached_at": None}
@@ -55,6 +110,85 @@ def get_current_time_utc8():
     utc8_offset = timedelta(hours=8)
     utc8_time = utc_time + utc8_offset
     return utc8_time.replace(tzinfo=None)
+
+
+def _is_persistable_iso_date(value):
+    """Return True when a value can be stored in the DATE column."""
+    try:
+        parse_date(value)
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _normalize_eos_date_for_storage(value):
+    """Normalize EOS dates to a persistable ISO date string."""
+    eos_date = str(value or '').strip()
+    if eos_date.lower() in ('no eos found', 'n/a', 'unknown', 'not found', ''):
+        return '2099-12-31'
+    if not _is_persistable_iso_date(eos_date):
+        return '2099-12-31'
+    return eos_date
+
+
+def _is_hw_sw_classified(value):
+    """Return True only for explicit Hardware/Software classifications."""
+    text = str(value or '').strip().lower()
+    return ('hardware' in text) or ('software' in text)
+
+
+def _humanize_eos_for_export(value):
+    """Convert internal placeholder date into user-friendly export text."""
+    if value is None:
+        return "No EOS found"
+    text = str(value)
+    return "No EOS found" if text == "2099-12-31" else text
+
+
+def _is_eos_passed(eos_date_str):
+    """Check if EOS date has passed compared to current NTP time."""
+    if not eos_date_str or eos_date_str in ('2099-12-31', 'No EOS found', 'N/A', ''):
+        return False
+    
+    try:
+        # Parse the EOS date
+        eos_date = parse_date(eos_date_str)
+        if not eos_date:
+            return False
+        
+        # Get current time from NTP
+        current_time = get_ntp_time()
+        
+        # Compare: if current date is past EOS date, it has passed
+        return current_time.date() > eos_date
+    except Exception as e:
+        print(f"Warning: Could not parse EOS date '{eos_date_str}': {e}")
+        return False
+
+
+def _humanize_result_payload(result):
+    """Convert placeholder EOS dates inside API/UI payloads and add EOS status."""
+    if not isinstance(result, dict):
+        return result
+
+    normalized = dict(result)
+    eos_date_raw = result.get("EOS Date")
+    normalized["EOS Date"] = _humanize_eos_for_export(eos_date_raw)
+    
+    # Add EOS expiration status flag for frontend rendering
+    normalized["is_eos_passed"] = _is_eos_passed(eos_date_raw)
+
+    tiers = result.get("Support Tiers")
+    if isinstance(tiers, list):
+        normalized["Support Tiers"] = [
+            {
+                "Tier": tier.get("Tier", "") if isinstance(tier, dict) else "",
+                "EndDate": _humanize_eos_for_export(tier.get("EndDate")) if isinstance(tier, dict) else "",
+            }
+            for tier in tiers
+        ]
+
+    return normalized
 
 
 def _is_authenticated():
@@ -258,7 +392,10 @@ def upload_manual():
     start_time = time.time()
     try:
         data = request.get_json(silent=True) or {}
-        query = str(data.get('query', '')).strip()
+        raw_query = data.get('query')
+        if raw_query is None:
+            return jsonify(_build_upload_payload([], [], 0.0, error='No manual query provided.')), 400
+        query = str(raw_query).strip()
         if not query:
             return jsonify(_build_upload_payload([], [], 0.0, error='No manual query provided.')), 400
 
@@ -267,9 +404,17 @@ def upload_manual():
         if not items:
             return jsonify(_build_upload_payload([], [], 0.0, error='No manual query provided.')), 400
 
-        # Stage all items for pipeline (pipeline classifies HW vs SW per item)
+        # Stage all manual items with an unknown type until the pipeline classifies them.
         hw_list = []
-        sw_list = items
+        sw_list = [
+            {
+                "Name": item,
+                "Hardware/Software": "N.A",
+                "EOS Date": "N/A",
+                "Confidence": 0.0,
+            }
+            for item in items
+        ]
 
         _last_upload["hw_list"] = hw_list
         _last_upload["sw_list"] = sw_list
@@ -311,6 +456,7 @@ def run_pipeline():
         selected_sw = _parse_selected_indices("sw")
         hw_name_overrides = _parse_name_overrides("hw")
         sw_name_overrides = _parse_name_overrides("sw")
+        skip_cache = request.args.get("skip_cache", "").lower() in {"1", "true", "yes"}
 
         if not hw_list and not sw_list:
             yield sse("pipeline-error", {"error": "No data to process. Please upload a file first."})
@@ -348,30 +494,48 @@ def run_pipeline():
             name = (hw_name_overrides if item_type == "hw" else sw_name_overrides).get(index, original_name)
             cache_key = f"{item_type}:{name.strip().lower()}"
 
-            # 1. Check database first (persistent cache)
-            db_product = db_session.query(__import__('models').ProductEOS).filter(
-                __import__('sqlalchemy').func.lower(__import__('models').ProductEOS.name) == name.strip().lower()
-            ).first()
-            
-            if db_product:
-                # Found in database - return cached result
-                result = db_product.to_dict()
-                yield sse("item-done", {
-                    "name": name, "type": item_type, "index": index,
-                    "result": result, "cached": True, "cached_from": "database"
-                })
-                processed += 1
-            # 2. Check in-memory cache (session cache)
-            elif cache_key in _results_cache:
-                yield sse("item-done", {
-                    "name": name, "type": item_type, "index": index,
-                    "result": _results_cache[cache_key], "cached": True, "cached_from": "memory"
-                })
-                processed += 1
+            if not skip_cache:
+                # 1. Check database first (persistent cache)
+                try:
+                    from models import ProductEOS
+                    from sqlalchemy import func
+                    
+                    # Refresh the session to ensure we see recent commits
+                    db_session.expire_all()
+                    
+                    db_product = db_session.query(ProductEOS).filter(
+                        func.lower(ProductEOS.name) == name.strip().lower()
+                    ).first()
+
+                    if db_product:
+                        # Found in database - return cached result
+                        result = _humanize_result_payload(db_product.to_dict())
+                        print(f"[CACHE] Database HIT: {name}")
+                        yield sse("item-done", {
+                            "name": name, "type": item_type, "index": index,
+                            "result": result, "cached": True, "cached_from": "database"
+                        })
+                        processed += 1
+                        continue
+                    else:
+                        print(f"[CACHE] Database MISS: {name}")
+                except Exception as db_check_err:
+                    print(f"[ERROR] Database cache check failed for {name}: {db_check_err}")
+
+                # 2. Check in-memory cache (session cache)
+                if cache_key in _results_cache:
+                    print(f"[CACHE] Memory HIT: {name}")
+                    yield sse("item-done", {
+                        "name": name, "type": item_type, "index": index,
+                        "result": _humanize_result_payload(_results_cache[cache_key]), "cached": True, "cached_from": "memory"
+                    })
+                    processed += 1
+                    continue
+
             # 3. Queue for API processing
-            else:
-                yield sse("item-start", {"name": name, "type": item_type, "index": index})
-                to_process.append((name, item_type, index, cache_key))
+            print(f"[PROCESSING] Queuing for API: {name}")
+            yield sse("item-start", {"name": name, "type": item_type, "index": index})
+            to_process.append((name, item_type, index, cache_key))
 
         # ── Process non-cached items concurrently ──────────────────────────
         if to_process:
@@ -393,38 +557,99 @@ def run_pipeline():
                             # Store in both caches (memory and database)
                             _results_cache[cache_key] = result
                             
-                            # Store in database for persistence
-                            try:
-                                ntp_time = get_ntp_time()
-                                product_repo.add_product(
-                                    name=name,
-                                    summary=result.get('Summary', ''),
-                                    hardware_software=result.get('Hardware/Software', item_type),
-                                    support_model=result.get('Support Model', 'Unknown'),
-                                    eos_date=result.get('EOS Date', '2099-12-31'),
-                                    source_urls=result.get('Source URLs', []),
-                                    confidence=result.get('Confidence', 0.0),
-                                    created_timestamp=ntp_time
-                                )
-                                # Store support tiers if present
-                                db_product = db_session.query(__import__('models').ProductEOS).filter(
-                                    __import__('sqlalchemy').func.lower(__import__('models').ProductEOS.name) == name.strip().lower()
-                                ).first()
-                                if db_product and result.get('Support Tiers'):
-                                    for tier in result['Support Tiers']:
-                                        product_repo.add_support_tier(
-                                            product_id=db_product.id,
-                                            tier_name=tier.get('Tier', 'Unknown'),
-                                            end_date=tier.get('EndDate', '2099-12-31')
+                            # Debug: Log the API result
+                            print(f"[API] Result for {name}:")
+                            print(f"  Hardware/Software: {result.get('Hardware/Software', 'N/A')}")
+                            print(f"  EOS Date: {result.get('EOS Date', 'N/A')}")
+                            
+                            # Persist only explicit Hardware/Software classifications.
+                            hw_sw_raw = result.get('Hardware/Software', '')
+                            eos_date = result.get('EOS Date', '2099-12-31')
+                            if not _is_hw_sw_classified(hw_sw_raw):
+                                print(f"[DB] SKIPPING unclassified item: {name} (Hardware/Software={hw_sw_raw})")
+                                pass
+                            # Store in database - use placeholder if date is missing or invalid
+                            else:
+                                # Determine date to save
+                                if eos_date.lower() in ('no eos found', 'n/a', 'unknown', 'not found', ''):
+                                    eos_date_to_save = '2099-12-31'  # Placeholder for unknown date
+                                    print(f"[DB] Using placeholder date for {name} (API returned: {eos_date})")
+                                elif not _is_persistable_iso_date(eos_date):
+                                    eos_date_to_save = '2099-12-31'  # Fallback placeholder
+                                    print(f"[DB] Invalid date format, using placeholder for {name}")
+                                else:
+                                    eos_date_to_save = eos_date
+                                
+                                try:
+                                    # Check if product already exists - if so, update instead of insert
+                                    from sqlalchemy import func as sql_func
+                                    from models import ProductEOS
+                                    
+                                    # Refresh session to see recently inserted products
+                                    db_session.expire_all()
+                                    
+                                    existing = db_session.query(ProductEOS).filter(
+                                        sql_func.lower(ProductEOS.name) == name.strip().lower()
+                                    ).first()
+                                    
+                                    if existing:
+                                        # Update existing product
+                                        existing.summary = result.get('Summary', '')
+                                        existing.hardware_software = result.get('Hardware/Software', item_type)
+                                        existing.support_model = result.get('Support Model', 'Unknown')
+                                        existing.eos_date = parse_date(eos_date_to_save)
+                                        existing.source_urls = result.get('Source URLs', [])
+                                        existing.confidence = result.get('Confidence', 0.0)
+                                        # Clear old support tiers
+                                        for tier in existing.support_tiers:
+                                            db_session.delete(tier)
+                                        db_session.commit()
+                                        result['id'] = existing.id
+                                        print(f"[DB] UPDATED: {existing.name} (ID: {existing.id}) - New EOS Date: {eos_date_to_save}")
+                                    else:
+                                        # Create new product
+                                        ntp_time = get_ntp_time()
+                                        product_repo.add_product(
+                                            name=name,
+                                            summary=result.get('Summary', ''),
+                                            hardware_software=result.get('Hardware/Software', item_type),
+                                            support_model=result.get('Support Model', 'Unknown'),
+                                            eos_date=eos_date_to_save,
+                                            source_urls=result.get('Source URLs', []),
+                                            confidence=result.get('Confidence', 0.0),
+                                            created_timestamp=ntp_time
                                         )
-                            except Exception as db_err:
-                                db_session.rollback()
-                                # Log but don't fail the pipeline
-                                print(f"Warning: Failed to store {name} in database: {db_err}")
+                                        print(f"[DB] INSERTED: {name}")
+                                        
+                                        # Fetch the newly created product for support tier insertion
+                                        from models import ProductEOS
+                                        from sqlalchemy import func
+                                        existing = db_session.query(ProductEOS).filter(
+                                            func.lower(ProductEOS.name) == name.strip().lower()
+                                        ).first()
+                                        if existing:
+                                            result['id'] = existing.id
+                                            print(f"[DB] VERIFY: Created product found with ID: {existing.id}")
+                                    
+                                    # Add support tiers
+                                    if existing and result.get('Support Tiers'):
+                                        for tier in result['Support Tiers']:
+                                            end_date = tier.get('EndDate', '2099-12-31')
+                                            if not _is_persistable_iso_date(end_date):
+                                                continue
+                                            product_repo.add_support_tier(
+                                                product_id=existing.id,
+                                                tier_name=tier.get('Tier', 'Unknown'),
+                                                end_date=end_date
+                                            )
+                                except Exception as db_err:
+                                    db_session.rollback()
+                                    # Log clearly so user can see in console
+                                    print(f"[ERROR] Failed to store {name} in database: {type(db_err).__name__}: {db_err}")
                             
                             yield sse("item-done", {
                                 "name": name, "type": item_type, "index": index, 
-                                "result": result, "cached_from": "api"
+                                "result": _humanize_result_payload(result), "cached_from": "api"
                             })
                     except Exception as e:
                         yield sse("item-error", {"name": name, "type": item_type, "index": index, "error": str(e)})
@@ -446,7 +671,7 @@ def run_pipeline():
     )
 
 
-@app.route('/refresh-item', methods=['POST'])
+@app.route('/refresh-item', methods=['POST', 'PATCH'])
 @login_required
 def refresh_item():
     """
@@ -463,94 +688,108 @@ def refresh_item():
     """
     try:
         data = request.get_json(silent=True) or {}
-        item_name = str(data.get('item_name', '')).strip()
-        item_type = str(data.get('item_type', '')).strip()
-        
-        if not item_name or item_type not in ('hw', 'sw'):
-            return jsonify({"error": "Missing or invalid item_name or item_type"}), 400
-        
-        # Set up the pipeline
-        try:
-            keys, instruct = keys_and_prompt_setup()
-            client, config = client_setup(keys)
-        except Exception as e:
-            return jsonify({"error": f"Setup failed: {str(e)}"}), 500
-        
-        # Process the item fresh from API (bypass cache)
-        try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
+
+        # POST: retrigger API only (preview), do not persist yet.
+        if request.method == 'POST':
+            item_name = str(data.get('item_name', '')).strip()
+            item_type = str(data.get('item_type', '')).strip()
+
+            if not item_name or item_type not in ('hw', 'sw'):
+                return jsonify({"error": "Missing or invalid item_name or item_type"}), 400
+
             try:
-                result = loop.run_until_complete(process_line(item_name, client, config, instruct))
-            finally:
-                loop.close()
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-        
-        if result is None:
-            return jsonify({"error": "No result returned from API"}), 500
-        
-        # Update both caches with the fresh result
-        cache_key = f"{item_type}:{item_name.strip().lower()}"
-        _results_cache[cache_key] = result
-        
-        # Update or insert in database
-        try:
+                keys, instruct = keys_and_prompt_setup()
+                client, config = client_setup(keys)
+            except Exception as e:
+                return jsonify({"error": f"Setup failed: {str(e)}"}), 500
+
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(process_line(item_name, client, config, instruct))
+                finally:
+                    loop.close()
+            except Exception as e:
+                return jsonify({"error": str(e)}), 500
+
+            if result is None:
+                return jsonify({"error": "No result returned from API"}), 500
+
+            db_session.expire_all()
             from sqlalchemy import func as sql_func
             from models import ProductEOS
-            
-            # Check if product already exists
+
             existing_product = db_session.query(ProductEOS).filter(
                 sql_func.lower(ProductEOS.name) == item_name.strip().lower()
             ).first()
-            
+
             if existing_product:
-                # Update existing product
-                existing_product.summary = result.get('Summary', '')
-                existing_product.hardware_software = result.get('Hardware/Software', item_type)
-                existing_product.support_model = result.get('Support Model', 'Unknown')
-                existing_product.eos_date = parse_date(result.get('EOS Date', '2099-12-31'))
-                existing_product.source_urls = result.get('Source URLs', [])
-                existing_product.confidence = result.get('Confidence', 0.0)
-                # Clear old support tiers
-                for tier in existing_product.support_tiers:
-                    db_session.delete(tier)
-                db_session.commit()
-            else:
-                # Create new product
-                ntp_time = get_ntp_time()
-                product_repo.add_product(
-                    name=item_name,
-                    summary=result.get('Summary', ''),
-                    hardware_software=result.get('Hardware/Software', item_type),
-                    support_model=result.get('Support Model', 'Unknown'),
-                    eos_date=result.get('EOS Date', '2099-12-31'),
-                    source_urls=result.get('Source URLs', []),
-                    confidence=result.get('Confidence', 0.0),
-                    created_timestamp=ntp_time
+                result['id'] = existing_product.id
+
+            cache_key = f"{item_type}:{item_name.strip().lower()}"
+            _results_cache[cache_key] = result
+
+            return jsonify({
+                "result": _humanize_result_payload(result),
+                "old_result": _humanize_result_payload(existing_product.to_dict()) if existing_product else None,
+                "asset_id": existing_product.id if existing_product else None,
+                "cached_from": "api"
+            }), 200
+
+        # PATCH: explicit user-confirmed save to overwrite existing record.
+        asset_id = data.get('id')
+        result = data.get('result')
+
+        if not isinstance(asset_id, int) or not isinstance(result, dict):
+            return jsonify({"error": "Payload must include integer id and result object."}), 400
+
+        required_fields = ['Name', 'Hardware/Software', 'EOS Date']
+        missing = [field for field in required_fields if not str(result.get(field, '')).strip()]
+        if missing:
+            return jsonify({"error": f"Missing required fields: {', '.join(missing)}"}), 400
+
+        hw_sw_type = result.get('Hardware/Software', '')
+        if not _is_hw_sw_classified(hw_sw_type):
+            return jsonify({"error": "Cannot save items that are not classified as Hardware/Software."}), 400
+
+        eos_date_to_save = _normalize_eos_date_for_storage(result.get('EOS Date'))
+
+        from models import ProductEOS
+        db_session.expire_all()
+        existing_product = db_session.query(ProductEOS).filter(ProductEOS.id == asset_id).first()
+        if not existing_product:
+            return jsonify({"error": f"Asset id {asset_id} not found."}), 404
+
+        try:
+            # Keep record identity stable on overwrite to avoid unique-name collisions.
+            existing_product.summary = result.get('Summary', '')
+            existing_product.hardware_software = result.get('Hardware/Software', existing_product.hardware_software)
+            existing_product.support_model = result.get('Support Model', 'Unknown')
+            existing_product.eos_date = parse_date(eos_date_to_save)
+            existing_product.source_urls = result.get('Source URLs', [])
+            existing_product.confidence = result.get('Confidence', 0.0)
+
+            for tier in existing_product.support_tiers:
+                db_session.delete(tier)
+            db_session.flush()
+
+            for tier in (result.get('Support Tiers') or []):
+                end_date = _normalize_eos_date_for_storage(tier.get('EndDate'))
+                product_repo.add_support_tier(
+                    product_id=existing_product.id,
+                    tier_name=tier.get('Tier', 'Unknown'),
+                    end_date=end_date
                 )
-                existing_product = db_session.query(ProductEOS).filter(
-                    sql_func.lower(ProductEOS.name) == item_name.strip().lower()
-                ).first()
-            
-            # Add support tiers
-            if existing_product and result.get('Support Tiers'):
-                for tier in result['Support Tiers']:
-                    product_repo.add_support_tier(
-                        product_id=existing_product.id,
-                        tier_name=tier.get('Tier', 'Unknown'),
-                        end_date=tier.get('EndDate', '2099-12-31')
-                    )
+
+            db_session.commit()
+            updated = _humanize_result_payload(existing_product.to_dict())
+            print(f"[DB] PATCH UPDATED: {updated.get('Name')} (ID: {existing_product.id})")
+            return jsonify({"success": True, "result": updated, "asset_id": existing_product.id}), 200
         except Exception as db_err:
             db_session.rollback()
-            # Log but don't fail the refresh
-            print(f"Warning: Failed to update {item_name} in database: {db_err}")
-        
-        return jsonify({
-            "result": result,
-            "cached_from": "api"
-        }), 200
-        
+            return jsonify({"error": f"Save failed: {str(db_err)}"}), 500
+
     except Exception as e:
         return jsonify({"error": f"Refresh failed: {str(e)}"}), 500
 
@@ -566,44 +805,120 @@ def pipeline_cache():
     for i, item in enumerate(hw_list):
         name = item if isinstance(item, str) else item.get("Name", str(item))
         if name in _results_cache:
-            cached_items.append({"name": name, "type": "hw", "index": i, "result": _results_cache[name]})
+            cached_items.append({"name": name, "type": "hw", "index": i, "result": _humanize_result_payload(_results_cache[name])})
     for i, item in enumerate(sw_list):
         name = item if isinstance(item, str) else item.get("Name", str(item))
         if name in _results_cache:
-            cached_items.append({"name": name, "type": "sw", "index": i, "result": _results_cache[name]})
+            cached_items.append({"name": name, "type": "sw", "index": i, "result": _humanize_result_payload(_results_cache[name])})
     return jsonify({"cached": cached_items, "total_cached": len(_results_cache)})
 
 
-@app.route('/export-csv')
+@app.route('/cache-debug')
+@login_required
+def cache_debug():
+    """DEBUG: Show raw cache contents and current upload lists."""
+    hw_list = _last_upload.get("hw_list", [])
+    sw_list = _last_upload.get("sw_list", [])
+    
+    # Extract names from current lists
+    current_names = []
+    for item in hw_list:
+        name = item if isinstance(item, str) else item.get("Name", str(item))
+        current_names.append(name)
+    for item in sw_list:
+        name = item if isinstance(item, str) else item.get("Name", str(item))
+        current_names.append(name)
+    
+    # Find orphaned cache entries (in cache but not in current lists)
+    orphaned = []
+    for cache_key in _results_cache.keys():
+        if cache_key not in current_names:
+            orphaned.append(cache_key)
+    
+    return jsonify({
+        "memory_cache_items": list(_results_cache.keys()),
+        "memory_cache_count": len(_results_cache),
+        "current_upload_names": current_names,
+        "current_upload_count": len(current_names),
+        "orphaned_cache_items": orphaned,
+        "orphaned_count": len(orphaned)
+    })
+
+
+@app.route('/cache-clear', methods=['POST'])
+@login_required
+def cache_clear():
+    """ADMIN: Clear the in-memory cache."""
+    global _results_cache
+    count = len(_results_cache)
+    _results_cache.clear()
+    return jsonify({
+        "status": "success",
+        "message": f"Cleared {count} items from memory cache",
+        "cleared_count": count
+    })
+
+
+@app.route('/export-csv', methods=['GET', 'POST'])
 @login_required
 def export_csv():
     """Export results cache or database to CSV file and serve it to the user."""
     try:
         results = []
-        
-        # First, try to use in-memory cache (from current pipeline run)
-        if _results_cache:
-            results = list(_results_cache.values())
-        else:
-            # If cache is empty, query database for all products
-            from models import ProductEOS
-            db_products = db_session.query(ProductEOS).all()
+
+        from models import ProductEOS
+
+        if request.method == 'POST':
+            payload = request.get_json(silent=True) or {}
+            ids = payload.get('ids', [])
+            if not isinstance(ids, list) or not all(isinstance(i, int) for i in ids):
+                return jsonify({"error": "Payload must be JSON with integer ids array."}), 400
+            if not ids:
+                return jsonify({"error": "Please select at least one row to export."}), 400
+
+            db_products = db_session.query(ProductEOS).filter(ProductEOS.id.in_(ids)).all()
             if not db_products:
-                return jsonify({"error": "No results to export. Please run the pipeline first."}), 400
-            
-            # Convert database products to result format
-            for product in db_products:
-                result = {
-                    "Name": product.name,
-                    "Summary": product.summary,
-                    "Hardware/Software": product.hardware_software,
-                    "Support Model": product.support_model,
-                    "EOS Date": product.eos_date.isoformat() if product.eos_date else "N/A",
-                    "Source URLs": product.source_urls or [],
-                    "Confidence": product.confidence,
-                    "Support Tiers": [{"Tier": tier.tier, "EndDate": tier.end_date.isoformat() if tier.end_date else "N/A"} for tier in product.support_tiers]
-                }
-                results.append(result)
+                return jsonify({"error": "No matching assets found for selected IDs."}), 404
+        else:
+            # Backward-compatible fallback behavior for existing GET route usage.
+            if _results_cache:
+                results = []
+                for item in _results_cache.values():
+                    normalized = dict(item)
+                    normalized["EOS Date"] = _humanize_eos_for_export(item.get("EOS Date"))
+                    if isinstance(item.get("Support Tiers"), list):
+                        normalized["Support Tiers"] = [
+                            {
+                                "Tier": tier.get("Tier", ""),
+                                "EndDate": _humanize_eos_for_export(tier.get("EndDate")),
+                            }
+                            for tier in item.get("Support Tiers", [])
+                        ]
+                    results.append(normalized)
+                db_products = []
+            else:
+                db_products = db_session.query(ProductEOS).all()
+                if not db_products:
+                    return jsonify({"error": "No results to export. Please run the pipeline first."}), 400
+
+        for product in db_products:
+            result = {
+                "Name": product.name,
+                "Summary": product.summary,
+                "Hardware/Software": product.hardware_software,
+                "Support Model": product.support_model,
+                "EOS Date": _humanize_eos_for_export(product.eos_date.isoformat() if product.eos_date else None),
+                "Source URLs": product.source_urls or [],
+                "Confidence": product.confidence,
+                "Support Tiers": [
+                    {
+                        "Tier": tier.tier,
+                        "EndDate": _humanize_eos_for_export(tier.end_date.isoformat() if tier.end_date else None),
+                    }
+                    for tier in product.support_tiers
+                ]
+            }
+            results.append(result)
         
         if not results:
             return jsonify({"error": "No results to export. Please run the pipeline first."}), 400
@@ -641,6 +956,149 @@ def get_time():
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AI Chat API routes
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _get_chat_session() -> GeminiChatSession:
+    """Return the GeminiChatSession for logged-in user, with inactivity timeout.
+    
+    - Per-user session maintains conversation history within a session
+    - Auto-rotates after 30 minutes of inactivity
+    - Token limit prevents unbounded growth (1000 tokens per conversation)
+    """
+    user_key = session.get("user", "anon")
+    current_time = time.time()
+    
+    # Check if session exists and hasn't timed out
+    if user_key in _chat_sessions:
+        last_activity = _chat_session_activity.get(user_key, current_time)
+        time_since_activity = current_time - last_activity
+        
+        # Auto-rotate if inactive for 30+ minutes
+        if time_since_activity > CHAT_INACTIVITY_TIMEOUT:
+            print(f"⏱ Session for {user_key} timed out after {time_since_activity:.0f}s")
+            del _chat_sessions[user_key]
+        else:
+            # Update last activity timestamp
+            _chat_session_activity[user_key] = current_time
+            return _chat_sessions[user_key]
+    
+    # Create new session (first time or after timeout)
+    session_id = f"web_{user_key}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+    new_session = GeminiChatSession(
+        session_id=session_id,
+        db_session_override=db_session
+    )
+    _chat_sessions[user_key] = new_session
+    _chat_session_activity[user_key] = current_time
+    return new_session
+
+
+@app.route('/chat/send', methods=['POST'])
+@login_required
+def chat_send():
+    """Send a message to the AI and return the response with token tracking."""
+    data = request.get_json(silent=True) or {}
+    message = str(data.get('message', '')).strip()
+    if not message:
+        return jsonify({'error': 'No message provided.'}), 400
+
+    try:
+        chat = _get_chat_session()
+        
+        # Check token usage before sending (include the new message cost estimate)
+        conv_tokens = chat.get_conversation_tokens()
+        new_message_est = len(message) // 4  # Rough token estimate
+        projected_tokens = conv_tokens + new_message_est
+        
+        # Warn if approaching limit (80% = 800 tokens)
+        token_limit_warning = projected_tokens > (CHAT_TOKEN_LIMIT * 0.8)
+        token_limit_reached = projected_tokens >= CHAT_TOKEN_LIMIT
+        
+        # Block if limit reached
+        if token_limit_reached:
+            return jsonify({
+                'error': f'Conversation token limit ({CHAT_TOKEN_LIMIT}) reached. Please start a new chat.',
+                'conversation_tokens': conv_tokens,
+                'token_limit': CHAT_TOKEN_LIMIT,
+                'limit_reached': True
+            }), 429  # 429 = Too Many Requests
+        
+        # Send the message
+        result = chat.send_message(message, use_rag=True)
+        
+        if result['success']:
+            # Get updated token count after message
+            updated_tokens = chat.get_conversation_tokens()
+            return jsonify({
+                'response': result['response'],
+                'session_id': chat.session_id,
+                'conversation_tokens': updated_tokens,
+                'token_limit': CHAT_TOKEN_LIMIT,
+                'token_warning': token_limit_warning,
+                'history_length': result.get('history_length', 0)
+            })
+        else:
+            return jsonify({'error': result.get('error', 'AI request failed.')}), 500
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/chat/history', methods=['GET'])
+@login_required
+def chat_history():
+    """Return the conversation history for the current user."""
+    chat = _get_chat_session()
+    return jsonify({'history': chat.get_history(), 'session_id': chat.session_id})
+
+
+@app.route('/chat/status', methods=['GET'])
+@login_required
+def chat_status():
+    """Return database and chat session status with token usage."""
+    try:
+        from models import ProductEOS
+        count = db_session.query(ProductEOS).count()
+        
+        # Get current chat session token usage
+        chat = _get_chat_session()
+        conv_tokens = chat.get_conversation_tokens()
+        
+        return jsonify({
+            'db_ok': True,
+            'product_count': count,
+            'conversation_tokens': conv_tokens,
+            'token_limit': CHAT_TOKEN_LIMIT,
+            'token_warning': conv_tokens > (CHAT_TOKEN_LIMIT * 0.8),
+            'session_id': chat.session_id
+        })
+    except Exception as e:
+        return jsonify({'db_ok': False, 'product_count': 0, 'error': str(e)})
+
+
+@app.route('/chat/clear', methods=['POST'])
+@login_required
+def chat_clear():
+    """Clear the current user's chat history and start a fresh session."""
+    user_key = session.get("user", "anon")
+    if user_key in _chat_sessions:
+        del _chat_sessions[user_key]
+    if user_key in _chat_session_activity:
+        del _chat_session_activity[user_key]
+    
+    # Create fresh session
+    chat = _get_chat_session()
+    return jsonify({
+        'status': 'cleared',
+        'session_id': chat.session_id,
+        'conversation_tokens': 0,
+        'token_limit': CHAT_TOKEN_LIMIT
+    })
 
 
 if __name__ == '__main__':
