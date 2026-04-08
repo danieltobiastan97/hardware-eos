@@ -1,0 +1,16 @@
+{
+  "session_id": "web_admin_20260407_090555",
+  "backend": "gemini",
+  "model": "gemini-2.5-flash",
+  "created": "2026-04-07T09:05:59.233362",
+  "history": [
+    {
+      "role": "user",
+      "content": "SMS Enterprise v7.6.0"
+    },
+    {
+      "role": "assistant",
+      "content": "# SMS Enterprise v7.6.0 Lifecycle Information\n\n## Details\n\n| Field        | Value                                                                                                                                                                             |\n|:-------------|:----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|\n| **Product**  | **SMS Enterprise v7.6.0**                                                                                                                                                         |\n| **Type**     | Software                                                                                                                                                                          |\n| **Summary**  | SMS Enterprise v7.6.0 is a current version of the security management software; acre security supports the latest two major versions, with v7.3.0 released in January 2024. |\n| **EOS Date** | 2099-12-31                                                                                                                                                                        |\n| **Confidence** | 90%                                                                                                                                                                               |"
+    }
+  ]
+}

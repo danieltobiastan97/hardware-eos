@@ -1,0 +1,32 @@
+{
+  "session_id": "web_admin_20260407_084649",
+  "backend": "gemini",
+  "model": "gemini-2.5-flash",
+  "created": "2026-04-07T08:47:36.195123",
+  "history": [
+    {
+      "role": "user",
+      "content": "EOS for Adobe Photoshop 2026"
+    },
+    {
+      "role": "assistant",
+      "content": "That information isn't in the current database. You may want to add that asset or consult the vendor directly."
+    },
+    {
+      "role": "user",
+      "content": "What is the EOS for Adobe Photoshop 2024"
+    },
+    {
+      "role": "assistant",
+      "content": "That information isn't in the current database. You may want to add that asset or consult the vendor directly."
+    },
+    {
+      "role": "user",
+      "content": "What is the EOS for Adobe Photoshop 2026"
+    },
+    {
+      "role": "assistant",
+      "content": "That information isn't in the current database. You may want to add that asset or consult the vendor directly."
+    }
+  ]
+}

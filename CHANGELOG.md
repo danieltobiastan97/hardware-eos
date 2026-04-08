@@ -4,18 +4,47 @@ All notable changes between branches are documented in this file.
 
 ---
 
-## [v1.3] — 2026-04-07
+## [v1.3] — 2026-04-08
 
-> Gemini-powered Ask AI feature with multi-turn conversation management, database guardrails, and EOS status indicators.
-> **Status:** Production-ready with Beta label.
+> Gemini-powered Ask AI feature with multi-turn conversation management, database guardrails, EOS status indicators, and comprehensive prompt injection prevention.
+> **Status:** Production-ready with Beta label. Enhanced security hardening.
 
 ### Added
 
-- **Ask AI Chat Feature** — Web-based chat interface powered by Google Gemini 2.5 Flash
-  - Modal popup with Gemini logo button in file inspector toolbar
-  - Natural language queries about EOS/EOL dates for IT assets
-  - Uses Gemini's native web search capability for real-time information
-  - **[PRODUCTION - Beta Status]**
+- **Prompt Injection Prevention System** — Multi-layered defense across backend, frontend, and data pipeline
+  - **Server-side chat validation** `is_suspicious_chat_input()` in `classes.py` detects 20+ injection patterns
+  - **Client-side validation** `detectPromptInjection()` in `app.js` blocks injections before server round-trip
+  - **Pattern detection** for context override, roleplay jailbreaks, credential requests, formatting attacks
+  - **Length & newline limits** prevent padding/encoding bypass attempts
+  - Suspicious inputs logged and blocked with user-friendly security warnings
+  - **Production impact:** Integrates seamlessly with existing RAG and vague query protections
+
+- **Input Sanitization & Response Validation**
+  - `sanitize_asset_name()` escapes XML/HTML special characters (`<`, `>`, `&`, `"`, `'`)
+  - `validate_eos_response()` enforces EOS response schema before persistence
+  - Confidence scores validated as float 0.0-1.0 range
+  - Support Model and Hardware/Software enums strictly enforced
+  - Response schema mismatch triggers retry or fallback to template
+
+- **Interactive CLI Test Interface** — `prompt.py` main() replaced with interactive session
+  - Accepts semicolon-separated asset names: `Dell PowerEdge R750; Windows Server 2019`
+  - Real-time processing with automatic retry (up to 3 attempts for failed items)
+  - Formatted result display with EOS date, confidence, support model, and source URLs
+  - Exit commands: `exit`, `quit`, `q` with keyboard interrupt support (Ctrl+C)
+  - Perfect for testing prompt injection patterns against Gemini backend
+
+- **Chat Security Enhancements**
+  - HTML escaping in chat bubbles (`escapeHtml()` utility)
+  - Token limit enforcement (1000 tokens) with 429 status on limit reached
+  - Warning threshold at 80% (800 tokens) in chat UI
+  - Injection-blocked messages shown in-chat with security explanation
+  - Unauthenticated chat access properly rejected with 401
+
+### Ask AI Chat Feature
+- Modal popup with Gemini logo button in file inspector toolbar
+- Natural language queries about EOS/EOL dates for IT assets
+- Uses Gemini's native web search capability for real-time information
+- **[PRODUCTION - Beta Status]**
 
 - **GeminiChatSession context management** — `GeminiChatSession` class in `unified_chat.py` for reliable conversation handling
   - Multi-turn conversation history with automatic persistence

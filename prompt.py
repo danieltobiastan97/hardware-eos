@@ -137,10 +137,16 @@ def chat_client_setup(keys):
 async def process_line(string, client, config, instruct):
     print(f"Processing item: {string}")
     try:
-        await asyncio.sleep(2)  # Sleep to avoid hitting rate limits
+        # Check for injection attempts
+        Helper.detect_injection_attempt(string)
+        
+        # Sanitize input and limit to 150 characters for product names
+        sanitized_input = Helper.sanitize_asset_name(string[:150])
+        safety_input = f'<asset_name>{sanitized_input}</asset_name>'
+        content=instruct + "\n\nProcess this asset: " + safety_input # add safety input to the end of the prompt
         response = client.models.generate_content(
         model="gemini-3-flash-preview",
-        contents=instruct + ' ' + string,
+        contents=content, # add safety input to the end of the prompt
         config=config
     )
         json_response = ""
@@ -151,7 +157,16 @@ async def process_line(string, client, config, instruct):
         for part in response.candidates[0].content.parts:
             if part.text:
                 json_response += part.text
-        return Helper.parse_llm_json(json_response) # includes throwing none in here as well
+        
+        # Parse JSON response
+        parsed_response = Helper.parse_llm_json(json_response)
+        
+        # Validate response structure and constraints
+        if parsed_response and not Helper.validate_eos_response(parsed_response):
+            print(f"Error: Response validation failed for {string}")
+            return None
+        
+        return parsed_response
     except Exception as e:
         print(f"Error processing {string}: {e}")
         return None # need to add some handling here to log if needed. 
@@ -203,30 +218,103 @@ async def run_async(lst, instruct, client, config):
 # Run the async function, change this for the script. 
 
 def main():
-    # start the client setup and preprocessing
-    keys, instruct = keys_and_prompt_setup()
-    print("Keys and prompt successfully loaded.")
-    client, config = client_setup(keys) # you can insert your own keys
-    print("Client setup successfully completed.")
+    """Interactive CLI test interface for EOS asset processing."""
+    print("\n" + "="*80)
+    print("  ASSET EOS/EOL LOOKUP — INTERACTIVE CLI TEST INTERFACE")
+    print("="*80 + "\n")
     
-    # start the reading in of data with spinner
-    spinner = Spinner("Reading file")
-    spinner.start()
-    processor = Helper()
-    hw_list, sw_list = processor.preprocess('test.xlsx', sheet='Asset List')
-    spinner.stop()
-
-    # show sw
-    print(f"SW List: {sw_list}")
-
-    # async processing of the hardware list
-    hw_results, hw_failed_items = asyncio.run(run_async(hw_list[:2], instruct, client, config))
-    # async processing of software list
-    sw_results, sw_failed_items = asyncio.run(run_async(sw_list[:2], instruct, client, config))
-
-    #print(f"Failed items: {failed_items}")
-    ##print(f"Successful items: {len(results)}")
-    return hw_results, sw_results
+    # Setup phase
+    print("📋 Initializing system...")
+    try:
+        keys, instruct = keys_and_prompt_setup()
+        print("✓ Keys and prompt successfully loaded.")
+        
+        client, config = client_setup(keys)
+        print("✓ Client setup successfully completed.\n")
+    except Exception as e:
+        print(f"❌ Setup failed: {e}")
+        return
+    
+    # Main CLI loop
+    while True:
+        print("-" * 80)
+        print("INPUT FORMAT: Enter asset names separated by semicolons")
+        print("EXAMPLE: Dell PowerEdge R750; Windows Server 2019; Cisco Catalyst 3750")
+        print("COMMANDS: 'exit' or 'quit' to terminate")
+        print("-" * 80 + "\n")
+        
+        try:
+            user_input = input("🔍 Enter asset names (semicolon-separated): ").strip()
+            
+            # Check for exit command
+            if user_input.lower() in ['exit', 'quit', 'q']:
+                print("\n✓ Exiting CLI. Goodbye!\n")
+                break
+            
+            # Validate input
+            if not user_input:
+                print("⚠️  Empty input. Please enter at least one asset name.\n")
+                continue
+            
+            # Parse assets
+            assets = [asset.strip() for asset in user_input.split(';')]
+            assets = [a for a in assets if a]  # Remove empty strings
+            
+            if not assets:
+                print("⚠️  No valid assets found. Please try again.\n")
+                continue
+            
+            print(f"\n📊 Processing {len(assets)} asset(s)...\n")
+            
+            # Process assets
+            spinner = Spinner(f"Processing {len(assets)} asset")
+            spinner.start()
+            
+            try:
+                results, failed = asyncio.run(run_async(assets, instruct, client, config))
+                spinner.stop()
+                
+                # Display results
+                print("\n" + "="*80)
+                print(f"  RESULTS: {len(results)} Successful | {len(failed)} Failed")
+                print("="*80 + "\n")
+                
+                if results:
+                    print("✓ SUCCESSFUL RESULTS:")
+                    print("-" * 80)
+                    for i, result in enumerate(results, 1):
+                        if isinstance(result, dict):
+                            print(f"\n[{i}] {result.get('Name', 'Unknown')}")
+                            print(f"    Type: {result.get('Hardware/Software', 'N/A')}")
+                            print(f"    EOS Date: {result.get('EOS Date', 'N/A')}")
+                            print(f"    Confidence: {result.get('Confidence', 0.0)}")
+                            print(f"    Support Model: {result.get('Support Model', 'N/A')}")
+                            print(f"    Summary: {result.get('Summary', 'N/A')[:100]}...")
+                            urls = result.get('Source URLs', [])
+                            if urls:
+                                print(f"    Sources: {', '.join(urls[:2])}")
+                        else:
+                            print(f"\n[{i}] {result}")
+                    print("\n" + "-" * 80)
+                
+                if failed:
+                    print(f"\n❌ FAILED ITEMS: {len(failed)}")
+                    print("-" * 80)
+                    for item in failed:
+                        print(f"  • {item}")
+                    print("-" * 80)
+                
+                print(f"\n📈 Summary: {len(results)}/{len(assets)} processed successfully\n")
+                
+            except Exception as e:
+                spinner.stop()
+                print(f"\n❌ Processing error: {e}\n")
+        
+        except KeyboardInterrupt:
+            print("\n\n⚠️  Interrupted by user. Exiting...\n")
+            break
+        except Exception as e:
+            print(f"\n❌ Error: {e}\n")
 
 if __name__ == '__main__':
     main()

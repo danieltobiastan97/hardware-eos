@@ -503,6 +503,37 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
         Returns:
             dict with 'success', 'response', and metadata
         """
+        from classes import Helper
+        
+        # Step 0: Detect prompt injection attempts
+        is_suspicious, reason = Helper.is_suspicious_chat_input(user_message)
+        if is_suspicious:
+            injection_response = f"⚠️ Suspicious input detected: {reason}. Please ask a legitimate question about product EOS/EOL dates."
+            print(f"⚠️ [Security] Blocked suspicious chat input: {reason}")
+            print(f"   Message: {user_message[:100]}")
+            
+            # Add to history for logging
+            self.conversation_history.append({
+                "role": "user",
+                "content": user_message
+            })
+            self.conversation_history.append({
+                "role": "assistant",
+                "content": injection_response
+            })
+            self.conversation_tokens += (len(user_message) + len(injection_response)) // 4
+            
+            return {
+                'success': True,
+                'response': injection_response,
+                'backend': 'Security-Filter',
+                'blocked_suspicious_input': True,
+                'reason': reason,
+                'tokens_used': self.estimated_tokens_used,
+                'history_length': len(self.conversation_history),
+                'conversation_tokens': self.conversation_tokens
+            }
+        
         # Step 1: Add user message to history
         self.conversation_history.append({
             "role": "user",
