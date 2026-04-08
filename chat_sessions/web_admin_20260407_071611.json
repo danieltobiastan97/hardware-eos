@@ -1,0 +1,16 @@
+{
+  "session_id": "web_admin_20260407_071611",
+  "backend": "gemini",
+  "model": "gemini-2.5-flash",
+  "created": "2026-04-07T07:16:15.599570",
+  "history": [
+    {
+      "role": "user",
+      "content": "Adobe Photoshop 2024"
+    },
+    {
+      "role": "assistant",
+      "content": "# Adobe Photoshop 2024 Lifecycle Details\n\nHere are the lifecycle details for **Adobe Photoshop 2024 (Version 25.x)**:\n\n## Summary\n\nAdobe provides technical support and security fixes for the current and one prior major version. Support for Photoshop 2024 (v25) ended with the release of Photoshop 2026 (v27) in October 2025.\n\n## Key Dates\n\n*   **EOS Date**: 2025-10-27\n*   **Confidence**: 90%\n\n## Support Tiers\n\n| Support Tier               | End Date   |\n| :------------------------- | :--------- |\n| Standard Support (N)       | 2024-10-14 |\n| Prior Version Support (N-1) | 2025-10-27 |"
+    }
+  ]
+}

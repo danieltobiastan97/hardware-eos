@@ -1,0 +1,24 @@
+{
+  "session_id": "web_admin_20260407_085617",
+  "backend": "gemini",
+  "model": "gemini-2.5-flash",
+  "created": "2026-04-07T08:56:40.475271",
+  "history": [
+    {
+      "role": "user",
+      "content": "What is the EOS for Adobe Photoshop 2022"
+    },
+    {
+      "role": "assistant",
+      "content": "# Asset Lifecycle Result\nBased on current database entries related to your query \"What is the EOS for Adobe Photoshop 2022\":\n\n| Asset | Type | EOS Date |\n|---|---|---|\n| Adobe Photoshop 2016 | Software | 2018-10-15 |\n| Adobe Photoshop 2019 (Version 20.x) | Software | 2020-10-20 |\n| Adobe Photoshop 2019 | Software | 2020-10-20 |\n\n## Notes\n- Adobe Photoshop versions released in 2016 (CC 2015.5 and CC 2017) are no longer supported under Adobe's N-1 support policy, which only covers the current and one previous major version."
+    },
+    {
+      "role": "user",
+      "content": "What about 2026"
+    },
+    {
+      "role": "assistant",
+      "content": "Here is the End-of-Life (EOS) information for the product related to \"2026\" in the database:\n\n# Adobe Photoshop 2026\n\n## Details\n- **Type**: Software\n- **Summary**: Adobe Photoshop 2026 (v27.x) follows a version-based support model where technical support and security fixes are provided for the current and immediately preceding major versions.\n- **EOS Date**: 2099-12-31\n- **Confidence**: 90%\n\n### Support Tiers\n- Core Support: 2099-12-31\n- Security Updates: 2099-12-31"
+    }
+  ]
+}
