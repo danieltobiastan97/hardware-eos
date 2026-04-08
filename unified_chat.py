@@ -127,7 +127,8 @@ def is_vague_query(user_query: str) -> bool:
     _STOP = {
         'for', 'the', 'and', 'what', 'when', 'does', 'is', 'are',
         'will', 'has', 'have', 'end', 'of', 'support', 'about',
-        'can', 'you', 'tell', 'me', 'show', 'give', 'please'
+        'can', 'you', 'tell', 'me', 'show', 'give', 'please',
+        'how', 'many', 'there'
     }
     tokens = [t for t in query_lower.replace('/', ' ').replace('-', ' ').split() if len(t) > 2 and t not in _STOP]
     specific_tokens = [t for t in tokens if t not in generic_terms]

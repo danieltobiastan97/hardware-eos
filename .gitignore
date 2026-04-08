@@ -6,6 +6,7 @@ keys.json
 .DS_Store
 __pycache__/
 *.pyc
+.pytest_cache/
 uploads/
 testing_files/
 chat_sessions/

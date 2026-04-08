@@ -62,11 +62,11 @@ print("📋 Verifying database schema...", end=" ")
 try:
     with db_engine.connect() as conn:
         inspector_query = text(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('product_eos', 'support_tier', 'asset_cache')"
+            "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('product_eos', 'support_tier', 'asset_cache', 'system', 'product_system')"
         )
         result = conn.execute(inspector_query)
         existing_tables = {row[0] for row in result}
-        required_tables = {'product_eos', 'support_tier', 'asset_cache'}
+        required_tables = {'product_eos', 'support_tier', 'asset_cache', 'system', 'product_system'}
         
         if existing_tables == required_tables:
             print("✓")
@@ -91,18 +91,49 @@ _chat_session_activity = {}  # session_user -> last_activity_timestamp
 CHAT_TOKEN_LIMIT = 1000
 CHAT_INACTIVITY_TIMEOUT = 30 * 60  # 30 minutes in seconds
 
-# NTP time caching
-_ntp_time_cache = {"timestamp": None, "cached_at": None}
+# NTP time caching/config (keeps logs quiet when UDP/123 is blocked in containers)
+_ntp_time_cache = {
+    "timestamp": None,
+    "cached_at": 0.0,
+    "last_warned_at": 0.0,
+}
 _ntp_client = ntplib.NTPClient()
+NTP_SERVER = os.getenv("NTP_SERVER", "pool.ntp.org")
+NTP_ENABLED = os.getenv("NTP_ENABLED", "1").strip().lower() not in {"0", "false", "no"}
+NTP_CACHE_TTL_SECONDS = int(os.getenv("NTP_CACHE_TTL_SECONDS", "300"))
+NTP_WARN_INTERVAL_SECONDS = int(os.getenv("NTP_WARN_INTERVAL_SECONDS", "900"))
 
 def get_ntp_time():
     """Get current UTC time from NTP server, or use local time if NTP fails."""
+    now_epoch = time.time()
+
+    # Reuse a recent value to avoid hitting NTP for every EOS comparison.
+    cached_time = _ntp_time_cache.get("timestamp")
+    cached_at = float(_ntp_time_cache.get("cached_at") or 0.0)
+    if cached_time is not None and (now_epoch - cached_at) < NTP_CACHE_TTL_SECONDS:
+        return cached_time
+
+    if not NTP_ENABLED:
+        local_now = datetime.now(tz=timezone.utc)
+        _ntp_time_cache["timestamp"] = local_now
+        _ntp_time_cache["cached_at"] = now_epoch
+        return local_now
+
     try:
-        response = _ntp_client.request('pool.ntp.org', version=3, timeout=2)
-        return datetime.fromtimestamp(response.tx_time, tz=timezone.utc)
+        response = _ntp_client.request(NTP_SERVER, version=3, timeout=2)
+        synced_now = datetime.fromtimestamp(response.tx_time, tz=timezone.utc)
+        _ntp_time_cache["timestamp"] = synced_now
+        _ntp_time_cache["cached_at"] = now_epoch
+        return synced_now
     except Exception as e:
-        print(f"Warning: NTP request failed, using local time: {e}")
-        return datetime.now(tz=timezone.utc)
+        local_now = datetime.now(tz=timezone.utc)
+        last_warned_at = float(_ntp_time_cache.get("last_warned_at") or 0.0)
+        if (now_epoch - last_warned_at) >= NTP_WARN_INTERVAL_SECONDS:
+            print(f"Warning: NTP request failed ({NTP_SERVER}), using local UTC time: {e}")
+            _ntp_time_cache["last_warned_at"] = now_epoch
+        _ntp_time_cache["timestamp"] = local_now
+        _ntp_time_cache["cached_at"] = now_epoch
+        return local_now
 
 def get_current_time_utc8():
     """Get current UTC+8 time from NTP."""
@@ -189,6 +220,52 @@ def _humanize_result_payload(result):
         ]
 
     return normalized
+
+
+def _attach_systems_from_db(name, payload):
+    """Ensure payload carries latest Systems from DB for the given asset name."""
+    try:
+        from models import ProductEOS
+        from sqlalchemy import func
+
+        db_product = db_session.query(ProductEOS).filter(
+            func.lower(ProductEOS.name) == str(name).strip().lower()
+        ).first()
+        if not db_product:
+            return payload
+
+        normalized = dict(payload or {})
+        normalized['id'] = normalized.get('id') or db_product.id
+        normalized['Systems'] = [{'id': s.id, 'name': s.name} for s in db_product.systems]
+        return normalized
+    except Exception:
+        return payload
+
+
+def _refresh_memory_cache_for_product(product_id):
+    """Update in-memory cache entries so Systems stay in sync after tagging."""
+    try:
+        from models import ProductEOS
+
+        product = db_session.query(ProductEOS).get(product_id)
+        if not product:
+            return
+
+        systems_payload = [{'id': s.id, 'name': s.name} for s in product.systems]
+        normalized_name = (product.name or '').strip().lower()
+
+        for cache_key, cached in list(_results_cache.items()):
+            if ':' not in cache_key:
+                continue
+            _, cache_name = cache_key.split(':', 1)
+            if cache_name.strip().lower() != normalized_name:
+                continue
+            updated = dict(cached or {})
+            updated['id'] = updated.get('id') or product.id
+            updated['Systems'] = systems_payload
+            _results_cache[cache_key] = updated
+    except Exception:
+        pass
 
 
 def _is_authenticated():
@@ -334,6 +411,12 @@ def logout():
 @login_required
 def index():
     return render_template('file-inspector.html', current_user=session.get('user'))
+
+
+@app.route('/system-overview')
+@login_required
+def system_overview():
+    return render_template('system-overview.html', current_user=session.get('user'))
 
 @app.route('/upload', methods=['POST'])
 @login_required
@@ -509,7 +592,7 @@ def run_pipeline():
 
                     if db_product:
                         # Found in database - return cached result
-                        result = _humanize_result_payload(db_product.to_dict())
+                        result = _attach_systems_from_db(name, _humanize_result_payload(db_product.to_dict()))
                         print(f"[CACHE] Database HIT: {name}")
                         yield sse("item-done", {
                             "name": name, "type": item_type, "index": index,
@@ -525,9 +608,10 @@ def run_pipeline():
                 # 2. Check in-memory cache (session cache)
                 if cache_key in _results_cache:
                     print(f"[CACHE] Memory HIT: {name}")
+                    memory_payload = _attach_systems_from_db(name, _humanize_result_payload(_results_cache[cache_key]))
                     yield sse("item-done", {
                         "name": name, "type": item_type, "index": index,
-                        "result": _humanize_result_payload(_results_cache[cache_key]), "cached": True, "cached_from": "memory"
+                        "result": memory_payload, "cached": True, "cached_from": "memory"
                     })
                     processed += 1
                     continue
@@ -649,7 +733,7 @@ def run_pipeline():
                             
                             yield sse("item-done", {
                                 "name": name, "type": item_type, "index": index, 
-                                "result": _humanize_result_payload(result), "cached_from": "api"
+                                "result": _attach_systems_from_db(name, _humanize_result_payload(result)), "cached_from": "api"
                             })
                     except Exception as e:
                         yield sse("item-error", {"name": name, "type": item_type, "index": index, "error": str(e)})
@@ -1099,6 +1183,144 @@ def chat_clear():
         'conversation_tokens': 0,
         'token_limit': CHAT_TOKEN_LIMIT
     })
+
+
+# ==================== SYSTEM MANAGEMENT API ROUTES ====================
+
+@app.route('/api/systems', methods=['GET'])
+def get_all_systems():
+    """Get all systems with asset counts."""
+    try:
+        systems = product_repo.get_all_systems()
+        return jsonify(systems), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to fetch systems: {str(e)}'}), 500
+
+
+@app.route('/api/systems', methods=['POST'])
+def create_system():
+    """Create a new system."""
+    try:
+        data = request.get_json()
+        name = data.get('name', '').strip()
+        
+        if not name:
+            return jsonify({'error': 'System name is required'}), 400
+        
+        system = product_repo.create_system(name)
+        return jsonify({
+            'id': system.id,
+            'name': system.name,
+            'created_date': system.created_date.isoformat(),
+            'updated_date': system.updated_date.isoformat(),
+            'asset_count': 0
+        }), 201
+    except Exception as e:
+        return jsonify({'error': f'Failed to create system: {str(e)}'}), 500
+
+
+@app.route('/api/systems/<int:system_id>', methods=['DELETE'])
+def delete_system(system_id):
+    """Delete a system and its associations."""
+    try:
+        success = product_repo.delete_system(system_id)
+        if not success:
+            return jsonify({'error': 'System not found'}), 404
+        return jsonify({'message': 'System deleted successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to delete system: {str(e)}'}), 500
+
+
+@app.route('/api/systems/<int:system_id>', methods=['PUT'])
+def update_system(system_id):
+    """Rename a system."""
+    try:
+        data = request.get_json() or {}
+        name = str(data.get('name', '')).strip()
+        if not name:
+            return jsonify({'error': 'System name is required'}), 400
+
+        updated = product_repo.update_system(system_id, name)
+        if updated is False:
+            return jsonify({'error': 'System not found'}), 404
+        if updated is None:
+            return jsonify({'error': 'System name already exists or is invalid'}), 409
+
+        return jsonify({
+            'id': updated.id,
+            'name': updated.name,
+            'created_date': updated.created_date.isoformat(),
+            'updated_date': updated.updated_date.isoformat()
+        }), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to update system: {str(e)}'}), 500
+
+
+@app.route('/api/products/<int:product_id>/systems', methods=['GET'])
+def get_product_systems(product_id):
+    """Get all systems associated with a product."""
+    try:
+        systems = product_repo.get_systems_by_product(product_id)
+        return jsonify(systems), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to fetch product systems: {str(e)}'}), 500
+
+
+@app.route('/api/products/<int:product_id>/systems', methods=['POST'])
+def add_system_to_product(product_id):
+    """Add a system to a product."""
+    try:
+        data = request.get_json()
+        system_id = data.get('system_id')
+        
+        if not system_id:
+            return jsonify({'error': 'system_id is required'}), 400
+        
+        success = product_repo.add_system_to_product(product_id, system_id)
+        if not success:
+            return jsonify({'error': 'Product or system not found'}), 404
+
+        _refresh_memory_cache_for_product(product_id)
+        
+        return jsonify({'message': 'System added to product successfully'}), 201
+    except Exception as e:
+        return jsonify({'error': f'Failed to add system to product: {str(e)}'}), 500
+
+
+@app.route('/api/products/<int:product_id>/systems/<int:system_id>', methods=['DELETE'])
+def remove_system_from_product(product_id, system_id):
+    """Remove a system from a product."""
+    try:
+        success = product_repo.remove_system_from_product(product_id, system_id)
+        if not success:
+            return jsonify({'error': 'Association not found'}), 404
+
+        _refresh_memory_cache_for_product(product_id)
+        return jsonify({'message': 'System removed from product successfully'}), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to remove system from product: {str(e)}'}), 500
+
+
+@app.route('/api/products', methods=['GET'])
+def filter_products_by_systems():
+    """Filter products by systems (OR logic)."""
+    try:
+        # Get system_ids from query parameter (comma-separated)
+        systems_param = request.args.get('systems', '')
+        if not systems_param:
+            products = product_repo.get_all_products()
+        else:
+            try:
+                system_ids = [int(sid.strip()) for sid in systems_param.split(',')]
+                products = product_repo.get_products_by_systems(system_ids)
+            except ValueError:
+                return jsonify({'error': 'Invalid system IDs format'}), 400
+        
+        # Convert products to dicts and enrich with NTP-based EOS status flag
+        result = [_humanize_result_payload(p.to_dict()) for p in products]
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({'error': f'Failed to filter products: {str(e)}'}), 500
 
 
 if __name__ == '__main__':
