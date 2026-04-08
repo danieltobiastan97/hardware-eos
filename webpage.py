@@ -392,7 +392,10 @@ def upload_manual():
     start_time = time.time()
     try:
         data = request.get_json(silent=True) or {}
-        query = str(data.get('query', '')).strip()
+        raw_query = data.get('query')
+        if raw_query is None:
+            return jsonify(_build_upload_payload([], [], 0.0, error='No manual query provided.')), 400
+        query = str(raw_query).strip()
         if not query:
             return jsonify(_build_upload_payload([], [], 0.0, error='No manual query provided.')), 400
 
