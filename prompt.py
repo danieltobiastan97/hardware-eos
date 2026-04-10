@@ -59,6 +59,22 @@ def keys_and_prompt_setup(path='keys.json', prompt_path='prompts/prompt.txt'):
             raise FileNotFoundError(
                 f"API keys file not found ({key_path}) and GEMINI_API_KEY env var is not set."
             )
+
+        # Support both plain API key values and JSON payload secrets.
+        if env_api_key.startswith("{"):
+            try:
+                parsed_secret = json.loads(env_api_key)
+                env_api_key = str(
+                    parsed_secret.get("GEMINI_API_KEY")
+                    or parsed_secret.get("api_key")
+                    or ""
+                ).strip()
+            except json.JSONDecodeError:
+                pass
+
+        if not env_api_key:
+            raise ValueError("GEMINI_API_KEY secret payload did not contain a valid API key value.")
+
         keys = {"GEMINI_API_KEY": env_api_key}
 
     # load the prompt from a different text file

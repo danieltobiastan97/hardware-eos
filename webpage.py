@@ -1,5 +1,6 @@
 import os
 import json
+import re
 import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import wraps
@@ -305,6 +306,23 @@ def _password_matches(password):
     if ADMIN_PASSWORD_HASH:
         return check_password_hash(ADMIN_PASSWORD_HASH, password)
     return password == ADMIN_PASSWORD
+
+
+def _sanitize_error_message(error):
+    """Redact known secret patterns before returning error text to clients."""
+    message = str(error or "")
+
+    # Common Gemini API key prefix pattern.
+    message = re.sub(r"AIza[0-9A-Za-z_-]{20,}", "[REDACTED_API_KEY]", message)
+    # JSON-shaped secret payloads.
+    message = re.sub(r'("GEMINI_API_KEY"\s*:\s*")[^"]+("\s*)', r'\1[REDACTED]\2', message)
+
+    # Keep UI messages short and avoid reflecting long payloads.
+    max_len = 240
+    if len(message) > max_len:
+        message = message[:max_len] + "..."
+
+    return message
 
 
 def _unauthorized_response():
@@ -779,7 +797,9 @@ def run_pipeline():
                                 "result": _attach_systems_from_db(name, _humanize_result_payload(result)), "cached_from": "api"
                             })
                     except Exception as e:
-                        yield sse("item-error", {"name": name, "type": item_type, "index": index, "error": str(e)})
+                        safe_error = _sanitize_error_message(e)
+                        print(f"[ERROR] Pipeline item failed for {name}: {safe_error}")
+                        yield sse("item-error", {"name": name, "type": item_type, "index": index, "error": safe_error})
 
         elapsed = time.time() - pipeline_start
         yield sse("pipeline-done", {
@@ -838,7 +858,7 @@ def refresh_item():
                 finally:
                     loop.close()
             except Exception as e:
-                return jsonify({"error": str(e)}), 500
+                return jsonify({"error": _sanitize_error_message(e)}), 500
 
             if result is None:
                 return jsonify({"error": "No result returned from API"}), 500
