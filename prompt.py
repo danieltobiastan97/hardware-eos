@@ -53,7 +53,13 @@ def keys_and_prompt_setup(path='keys.json', prompt_path='prompts/prompt.txt'):
         with open(key_path, 'r') as file:
             keys = json.load(file)
     except FileNotFoundError:
-        raise FileNotFoundError(f"API keys file not found: {key_path}")
+        # On Cloud Run, keys.json is not present — fall back to environment variables.
+        env_api_key = os.getenv("GEMINI_API_KEY", "").strip()
+        if not env_api_key:
+            raise FileNotFoundError(
+                f"API keys file not found ({key_path}) and GEMINI_API_KEY env var is not set."
+            )
+        keys = {"GEMINI_API_KEY": env_api_key}
 
     # load the prompt from a different text file
     try:
