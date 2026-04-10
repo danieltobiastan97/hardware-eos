@@ -13,6 +13,12 @@ from datetime import datetime, timezone, timedelta
 import ntplib
 from pathlib import Path
 from sqlalchemy import text
+try:
+    from dotenv import load_dotenv
+except ImportError:
+    # Keep startup working even if python-dotenv is not installed in older images.
+    def load_dotenv(*_args, **_kwargs):
+        return False
 
 # Import pipeline functions from prompt.py
 from prompt import keys_and_prompt_setup, client_setup, process_line
@@ -24,14 +30,33 @@ from models import init_database, ProductEOSRepo, parse_date, Base
 # Import AI chat backend
 from unified_chat import GeminiChatSession
 
+SCRIPT_DIR = Path(__file__).resolve().parent
+load_dotenv(SCRIPT_DIR / '.env')
+
+
+def _get_allowed_cors_origins():
+    configured_origins = os.getenv("CORS_ALLOWED_ORIGINS", "").strip()
+    if configured_origins:
+        return [origin.strip() for origin in configured_origins.split(",") if origin.strip()]
+
+    default_origins = [
+        "http://localhost:3000",
+        "http://localhost:5173",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:5173",
+    ]
+    app_base_url = os.getenv("APP_BASE_URL", "").strip().rstrip("/")
+    if app_base_url and app_base_url not in default_origins:
+        default_origins.append(app_base_url)
+    return default_origins
+
 app = Flask(__name__)
 app.secret_key = os.getenv("APP_SECRET_KEY", "change-this-secret-key")
 
 # Enable CORS for all routes to allow cross-origin requests from React frontend
-CORS(app, supports_credentials=True, origins=["http://localhost:3000", "http://localhost:5173"])
+CORS(app, supports_credentials=True, origins=_get_allowed_cors_origins())
 
 # Get absolute paths for file operations
-SCRIPT_DIR = Path(__file__).resolve().parent
 UPLOAD_FOLDER = str(SCRIPT_DIR / 'uploads')
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -1342,4 +1367,9 @@ def filter_products_by_systems():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=3000, threaded=True)
+    app.run(
+        debug=os.getenv("FLASK_DEBUG", "1").strip().lower() not in {"0", "false", "no"},
+        host='0.0.0.0',
+        port=int(os.getenv("PORT", "5000")),
+        threaded=True,
+    )

@@ -26,7 +26,10 @@ services:
     depends_on:
       - web
     environment:
-      VITE_API_URL: http://localhost:5000
+      VITE_PROXY_TARGET: http://web:5000
+      VITE_HMR_HOST: localhost
+      VITE_HMR_PORT: "3000"
+      VITE_HMR_CLIENT_PORT: "3000"
     volumes:
       - ./frontend:/frontend
       - /frontend/node_modules
