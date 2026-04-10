@@ -142,40 +142,42 @@ def chat_client_setup(keys):
 
 async def process_line(string, client, config, instruct):
     print(f"Processing item: {string}")
-    try:
-        # Check for injection attempts
-        Helper.detect_injection_attempt(string)
-        
-        # Sanitize input and limit to 150 characters for product names
-        sanitized_input = Helper.sanitize_asset_name(string[:150])
-        safety_input = f'<asset_name>{sanitized_input}</asset_name>'
-        content=instruct + "\n\nProcess this asset: " + safety_input # add safety input to the end of the prompt
-        response = client.models.generate_content(
+    # Check for injection attempts
+    Helper.detect_injection_attempt(string)
+
+    # Sanitize input and limit to 150 characters for product names
+    sanitized_input = Helper.sanitize_asset_name(string[:150])
+    safety_input = f'<asset_name>{sanitized_input}</asset_name>'
+    content = instruct + "\n\nProcess this asset: " + safety_input
+
+    response = client.models.generate_content(
         model="gemini-3-flash-preview",
-        contents=content, # add safety input to the end of the prompt
+        contents=content,
         config=config
     )
-        json_response = ""
-        # Validate response has content before accessing
-        if not response or not response.candidates or not response.candidates[0].content.parts:
-            print(f"Error: Empty or invalid response for {string}")
-            return None
-        for part in response.candidates[0].content.parts:
-            if part.text:
-                json_response += part.text
-        
-        # Parse JSON response
-        parsed_response = Helper.parse_llm_json(json_response)
-        
-        # Validate response structure and constraints
-        if parsed_response and not Helper.validate_eos_response(parsed_response):
-            print(f"Error: Response validation failed for {string}")
-            return None
-        
-        return parsed_response
-    except Exception as e:
-        print(f"Error processing {string}: {e}")
-        return None # need to add some handling here to log if needed. 
+
+    # Validate response has content before accessing
+    if not response or not response.candidates or not response.candidates[0].content.parts:
+        raise RuntimeError("Gemini returned an empty response.")
+
+    json_response = ""
+    for part in response.candidates[0].content.parts:
+        if part.text:
+            json_response += part.text
+
+    if not json_response.strip():
+        raise RuntimeError("Gemini response contained no text parts.")
+
+    # Parse JSON response
+    parsed_response = Helper.parse_llm_json(json_response)
+    if parsed_response is None:
+        raise RuntimeError("Gemini response could not be parsed as JSON.")
+
+    # Validate response structure and constraints
+    if not Helper.validate_eos_response(parsed_response):
+        raise RuntimeError("Gemini response failed EOS schema validation.")
+
+    return parsed_response
 
 async def ai_main(eos_list, instruct, client, config):
     tasks = [process_line(item, client, config, instruct) for item in eos_list]
