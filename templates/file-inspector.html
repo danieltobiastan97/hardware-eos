@@ -898,13 +898,48 @@
     } catch (_) {}
   }
 
-  function renderSystemBadges(systems) {
+  function renderSystemBadges(systems, productId) {
     if (!Array.isArray(systems) || systems.length === 0) {
       return '<span class="badge badge-system-empty" title="No systems assigned">—</span>';
     }
     const names = systems.map(s => s.name).join(', ');
     const badges = systems.map(s => `<span class="badge badge-system">${escHtml(s.name)}</span>`).join('');
     return `<span class="system-badge-wrap" title="${escHtml(names)}">${badges}</span>`;
+  }
+
+  async function untagSystemFromProduct(event, productId, systemId) {
+    event.stopPropagation();
+    const btn = event.target;
+    btn.disabled = true;
+    try {
+      const res = await fetch(`/api/products/${productId}/systems/${systemId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to remove system');
+
+      // Update in-memory data and re-render just the systems cell
+      ['hw', 'sw'].forEach(type => {
+        if (!currentTableData[type]) return;
+        currentTableData[type] = currentTableData[type].map(row => {
+          if (Number(row.id) !== productId) return row;
+          return { ...row, Systems: (row.Systems || []).filter(s => Number(s.id) !== systemId) };
+        });
+      });
+
+      document.querySelectorAll(`tr[data-asset-id="${productId}"]`).forEach(rowEl => {
+        const systemsCell = rowEl.querySelector('.systems-cell');
+        if (!systemsCell) return;
+        const rowData = currentTableData.hw.find(r => Number(r.id) === productId)
+          || currentTableData.sw.find(r => Number(r.id) === productId);
+        const updatedSystems = rowData?.Systems || [];
+        systemsCell.innerHTML = updatedSystems.length > 0
+          ? renderSystemBadges(updatedSystems, productId)
+          : '<button type="button" class="btn-tag-system" style="margin:0;" data-id="' + productId + '" title="Add system" aria-label="Add system"><span class="plus-logo">+</span></button>';
+      });
+
+      await loadSystems();
+    } catch (err) {
+      btn.disabled = false;
+      console.error(err);
+    }
   }
 
   async function openTagAssetModal(productId, productName) {
@@ -971,7 +1006,7 @@
         const systemsCell = rowEl.querySelector('.systems-cell');
         if (!systemsCell) return;
         if (updatedSystems.length > 0) {
-          systemsCell.innerHTML = renderSystemBadges(updatedSystems);
+          systemsCell.innerHTML = renderSystemBadges(updatedSystems, activeTagProductId);
         } else {
           systemsCell.innerHTML = '<button type="button" class="btn-tag-system" style="margin:0;" title="Add system" aria-label="Add system"><span class="plus-logo">+</span></button>';
         }
@@ -1160,7 +1195,7 @@
       tdSystems.className = 'systems-cell';
       const systems = row.Systems || [];
       if (systems.length > 0) {
-        tdSystems.innerHTML = renderSystemBadges(systems);
+        tdSystems.innerHTML = renderSystemBadges(systems, row.id);
       } else {
         tdSystems.innerHTML = '<button type="button" class="btn-tag-system" style="margin:0;" data-id="' + (row.id || '') + '" data-name="' + row.Name + '" data-type="' + typeLabel + '" title="Add system" aria-label="Add system"><span class="plus-logo">+</span></button>';
       }
@@ -1668,7 +1703,7 @@
           const systemsCell = rowEl.querySelector('.systems-cell');
           if (!systemsCell) return;
           if (systemsForRow.length > 0) {
-            systemsCell.innerHTML = renderSystemBadges(systemsForRow);
+            systemsCell.innerHTML = renderSystemBadges(systemsForRow, productId);
           } else {
             systemsCell.innerHTML = '<button type="button" class="btn-tag-system" style="margin:0;" title="Add system" aria-label="Add system"><span class="plus-logo">+</span></button>';
           }
@@ -2271,7 +2306,7 @@
     if (tdSystems) {
       const systems = Array.isArray(result.Systems) ? result.Systems : [];
       if (systems.length > 0) {
-        tdSystems.innerHTML = renderSystemBadges(systems);
+        tdSystems.innerHTML = renderSystemBadges(systems, assetId);
       } else {
         tdSystems.innerHTML = '<button type="button" class="btn-tag-system" style="margin:0;" title="Add system" aria-label="Add system"><span class="plus-logo">+</span></button>';
       }

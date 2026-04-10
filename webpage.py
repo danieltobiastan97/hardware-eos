@@ -4,6 +4,7 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import wraps
 from flask import Flask, render_template, request, jsonify, Response, stream_with_context, redirect, session, url_for, send_file
+from flask_cors import CORS
 from werkzeug.security import check_password_hash
 from werkzeug.utils import secure_filename
 import time
@@ -25,6 +26,9 @@ from unified_chat import GeminiChatSession
 
 app = Flask(__name__)
 app.secret_key = os.getenv("APP_SECRET_KEY", "change-this-secret-key")
+
+# Enable CORS for all routes to allow cross-origin requests from React frontend
+CORS(app, supports_credentials=True, origins=["http://localhost:3000", "http://localhost:5173"])
 
 # Get absolute paths for file operations
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -383,20 +387,34 @@ def _parse_name_overrides(type_key):
             overrides[index] = cleaned
     return overrides
 
-@app.route('/login', methods=['GET', 'POST'])
+@app.route('/login', methods=['GET', 'POST', 'OPTIONS'])
 def login():
+    # Handle preflight CORS request
+    if request.method == 'OPTIONS':
+        return jsonify({"status": "ok"}), 200
+    
     if _is_authenticated():
-        return redirect(url_for('index'))
+        return redirect(url_for('index')) if request.method == 'GET' else jsonify({"status": "already_authenticated"}), 200
 
     error = None
     if request.method == 'POST':
         username = str(request.form.get('username', '')).strip()
         password = str(request.form.get('password', ''))
+        
+        # Debug logging
+        print(f"[LOGIN] Attempting login for username: {username}")
+        print(f"[LOGIN] Password length: {len(password)} chars")
+        print(f"[LOGIN] Expected username: {ADMIN_USERNAME}")
+        print(f"[LOGIN] Password matches: {_password_matches(password)}")
+        
         if username == ADMIN_USERNAME and _password_matches(password):
             session.clear()
             session['user'] = ADMIN_USERNAME
+            print(f"[LOGIN] ✓ Login successful for {username}")
             return redirect(url_for('index'))
+        
         error = 'Invalid username or password.'
+        print(f"[LOGIN] ✗ Login failed - Invalid credentials")
 
     return render_template('login.html', error=error, username=ADMIN_USERNAME)
 

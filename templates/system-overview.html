@@ -79,6 +79,24 @@
   </div>
 </div>
 
+<!-- Tag Asset Modal -->
+<div class="modal" id="overviewTagAssetModal" style="display:none;">
+  <div class="modal-content modal-content-sm">
+    <div class="modal-header">
+      <h3>Tag Systems to Asset</h3>
+      <button class="modal-close" id="closeOverviewTagAssetModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="asset-name" id="overviewTagAssetName"></div>
+      <div class="systems-checkbox-list" id="overviewTagSystemsCheckboxList"></div>
+      <div class="modal-footer">
+        <button id="btnCancelOverviewTagAsset" class="btn-secondary" type="button">Cancel</button>
+        <button id="btnSaveOverviewTagAsset" class="btn-primary" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 <a class="page-nav-fab page-fade-link" href="/" title="Back to home">Back to Home</a>
 
 <div class="container">
@@ -182,6 +200,15 @@
   const overviewSystemsList = document.getElementById('overviewSystemsList');
   let allOverviewSystems = [];
 
+  // Tag-asset modal
+  const overviewTagAssetModal = document.getElementById('overviewTagAssetModal');
+  const closeOverviewTagAssetModal = document.getElementById('closeOverviewTagAssetModal');
+  const overviewTagAssetName = document.getElementById('overviewTagAssetName');
+  const overviewTagSystemsCheckboxList = document.getElementById('overviewTagSystemsCheckboxList');
+  const btnCancelOverviewTagAsset = document.getElementById('btnCancelOverviewTagAsset');
+  const btnSaveOverviewTagAsset = document.getElementById('btnSaveOverviewTagAsset');
+  let activeOverviewTagProductId = null;
+
   const overviewHwSection = document.getElementById('overviewHwSection');
   const overviewSwSection = document.getElementById('overviewSwSection');
   const overviewHwBody = document.getElementById('overviewHwBody');
@@ -206,7 +233,7 @@
       .replace(/'/g, '&#39;');
   }
 
-  function renderSystemBadges(list) {
+  function renderSystemBadges(list, productId) {
     if (!Array.isArray(list) || list.length === 0) {
       return '<span class="badge badge-system-empty">—</span>';
     }
@@ -216,12 +243,158 @@
       .join('') + '</span>';
   }
 
+  async function untagSystem(event, productId, systemId) {
+    event.stopPropagation();
+    const btn = event.target;
+    btn.disabled = true;
+    try {
+      const res = await fetch(`/api/products/${productId}/systems/${systemId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to remove system');
+
+      // Update both in-memory arrays and re-render affected cells
+      ['hw', 'sw'].forEach(typeKey => {
+        (currentRowsByType[typeKey] || []).forEach((row, idx) => {
+          if (Number(row.id) !== productId) return;
+          row.Systems = (row.Systems || []).filter(s => Number(s.id) !== systemId);
+          // Update the systems cell in the DOM
+          const tr = document.querySelector(`tr[data-row-id="row-${typeKey}-${idx}"]`);
+          if (tr) {
+            const tdSystems = tr.cells[6];
+            if (tdSystems) tdSystems.innerHTML = renderSystemBadges(row.Systems, productId);
+          }
+          // Also update currentProducts
+          const cp = currentProducts.find(p => Number(p.id) === productId);
+          if (cp) cp.Systems = row.Systems;
+        });
+      });
+
+      // If this product no longer belongs to the selected system, remove the row from view
+      const selectedSystemId = Number(overviewSystemSelect.value);
+      if (selectedSystemId === systemId) {
+        await loadSystemAssets();
+      }
+    } catch (err) {
+      btn.disabled = false;
+      console.error(err);
+    }
+  }
+
   function getConfidenceExplanation(score) {
     if (score >= 1.0) return 'Direct exact date from official vendor documentation.';
     if (score >= 0.9) return 'Official broad timeframe or strong reputable agreement.';
     if (score >= 0.7) return 'Single reputable source or verified vendor staff statement.';
     if (score >= 0.4) return 'Aggregator/forum consensus without primary source.';
     return 'Conflicting or insufficient evidence.';
+  }
+
+  async function openOverviewTagAssetModal(productId, productName) {
+    if (!productId) return;
+    activeOverviewTagProductId = Number(productId);
+    overviewTagAssetName.textContent = productName || 'Unknown asset';
+
+    try {
+      const [assignedRes, allRes] = await Promise.all([
+        fetch(`/api/products/${activeOverviewTagProductId}/systems`),
+        fetch('/api/systems')
+      ]);
+      const assigned = assignedRes.ok ? await assignedRes.json() : [];
+      const allSys = allRes.ok ? await allRes.json() : [];
+      const assignedSet = new Set((assigned || []).map(s => Number(s.id)));
+
+      overviewTagSystemsCheckboxList.innerHTML = allSys.map(system => `
+        <label class="checkbox-label">
+          <input type="checkbox" value="${system.id}" ${assignedSet.has(Number(system.id)) ? 'checked' : ''}>
+          <span>${escHtml(system.name)}</span>
+        </label>
+      `).join('');
+
+      overviewTagAssetModal.classList.add('active');
+      overviewTagAssetModal.style.display = 'flex';
+    } catch (err) {
+      console.error('Failed to load systems for asset:', err);
+    }
+  }
+
+  async function saveOverviewAssetSystems() {
+    if (!activeOverviewTagProductId) return;
+    const checked = Array.from(overviewTagSystemsCheckboxList.querySelectorAll('input[type="checkbox"]:checked'))
+      .map(el => Number(el.value));
+
+    try {
+      const curRes = await fetch(`/api/products/${activeOverviewTagProductId}/systems`);
+      const current = curRes.ok ? await curRes.json() : [];
+      const currentSet = new Set(current.map(s => Number(s.id)));
+
+      for (const sid of checked) {
+        if (!currentSet.has(sid)) {
+          await fetch(`/api/products/${activeOverviewTagProductId}/systems`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ system_id: sid })
+          });
+        }
+      }
+      for (const sid of currentSet) {
+        if (!checked.includes(sid)) {
+          await fetch(`/api/products/${activeOverviewTagProductId}/systems/${sid}`, { method: 'DELETE' });
+        }
+      }
+
+      // Build updated systems list for in-memory update
+      const allRes = await fetch('/api/systems');
+      const allSys = allRes.ok ? await allRes.json() : [];
+      const updatedSystems = allSys.filter(s => checked.includes(Number(s.id)));
+
+      // Update in-memory rows and re-render cells
+      const pid = activeOverviewTagProductId;
+      ['hw', 'sw'].forEach(typeKey => {
+        (currentRowsByType[typeKey] || []).forEach((row, idx) => {
+          if (Number(row.id) !== pid) return;
+          row.Systems = updatedSystems;
+          const cp = currentProducts.find(p => Number(p.id) === pid);
+          if (cp) cp.Systems = updatedSystems;
+          const tr = document.querySelector(`tr[data-row-id="row-${typeKey}-${idx}"]`);
+          if (tr) {
+            const tdSystems = tr.cells[6];
+            if (tdSystems) tdSystems.innerHTML = renderSystemBadges(updatedSystems, pid);
+          }
+        });
+      });
+
+      overviewTagAssetModal.classList.remove('active');
+      overviewTagAssetModal.style.display = 'none';
+
+      // Reload if the selected system filter is affected
+      await loadSystemAssets();
+    } catch (err) {
+      console.error('Failed to save systems:', err);
+    }
+  }
+
+  if (closeOverviewTagAssetModal) {
+    closeOverviewTagAssetModal.addEventListener('click', () => {
+      overviewTagAssetModal.classList.remove('active');
+      overviewTagAssetModal.style.display = 'none';
+    });
+  }
+  if (btnCancelOverviewTagAsset) {
+    btnCancelOverviewTagAsset.addEventListener('click', () => {
+      overviewTagAssetModal.classList.remove('active');
+      overviewTagAssetModal.style.display = 'none';
+    });
+  }
+  if (btnSaveOverviewTagAsset) {
+    btnSaveOverviewTagAsset.addEventListener('click', saveOverviewAssetSystems);
+  }
+
+  // Close modal on backdrop click
+  if (overviewTagAssetModal) {
+    overviewTagAssetModal.addEventListener('click', e => {
+      if (e.target === overviewTagAssetModal) {
+        overviewTagAssetModal.classList.remove('active');
+        overviewTagAssetModal.style.display = 'none';
+      }
+    });
   }
 
   function toggleOverviewExpand(mainRow, expandRow) {
@@ -359,7 +532,8 @@
 
       const tdSystems = tr.cells[6];
       if (tdSystems) {
-        tdSystems.innerHTML = renderSystemBadges(updated.Systems || row.Systems || []);
+        const pid = Number(currentRowsByType[type][index]?.id || row.id || 0);
+        tdSystems.innerHTML = renderSystemBadges(updated.Systems || row.Systems || [], pid);
       }
 
       updateExpandContent(type, index, currentRowsByType[type][index]);
@@ -443,7 +617,16 @@
 
       const tdSystems = document.createElement('td');
       tdSystems.className = 'systems-cell';
-      tdSystems.innerHTML = renderSystemBadges(row.Systems || []);
+      tdSystems.style.cursor = 'pointer';
+      tdSystems.title = 'Click to manage systems';
+      tdSystems.innerHTML = renderSystemBadges(row.Systems || [], row.id);
+      tdSystems.addEventListener('click', e => {
+        if (e.target.closest('.badge-untag')) return;
+        e.stopPropagation();
+        const pid = Number(row.id || 0);
+        if (!pid) return;
+        openOverviewTagAssetModal(pid, row.Name);
+      });
       tr.appendChild(tdSystems);
 
       const tdStatus = document.createElement('td');
@@ -475,7 +658,7 @@
       expandTr.appendChild(expandTd);
 
       tr.addEventListener('click', e => {
-        if (e.target.closest('.status-cell')) return;
+        if (e.target.closest('.status-cell') || e.target.closest('.systems-cell')) return;
         toggleOverviewExpand(tr, expandTr);
       });
       tr.addEventListener('keydown', e => {

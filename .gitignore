@@ -11,3 +11,9 @@ uploads/
 testing_files/
 chat_sessions/
 docker-compose.yml
+frontend/
+output.txt
+DOCKER_SETUP.md
+FRONTEND_SETUP.md
+plan_overview.md
+test_results.txt
