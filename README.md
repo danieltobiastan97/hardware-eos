@@ -12,6 +12,8 @@ An intelligent asset lifecycle management system powered by **Google Gemini AI**
 - **Result Caching** — Processed results saved to SQLite; repeated runs skip redundant API calls
 - **Retrigger & Preview** — Re-query a single asset and preview before/after changes before saving
 - **Selective Export** — Check the rows you want, then export only those to CSV
+- **System Tagging** — Create named systems (projects/applications), tag assets with one or more systems, and bulk-assign across selected rows
+- **System Overview** — Dedicated dashboard at `/system-overview` listing all systems with asset counts and quick-filter by system
 - **Session Authentication** — Username/password login protecting all routes
 
 ---
@@ -125,6 +127,28 @@ Upload a `.csv` or `.xlsx` file with these column headers:
 
 ---
 
+## System Tagging
+
+Systems are named groups (e.g. "Project Alpha", "HR Platform") that let you organise assets by project or application.
+
+1. Click **Manage Systems** in the file inspector toolbar to create, rename, or delete systems
+2. After processing, each asset row shows a **Systems** column — click the tag icon to assign systems to that asset
+3. To bulk-assign, select multiple rows and click **Bulk Assign System**
+4. Navigate to **System Overview** (link in the toolbar) to see all systems and their assets in one place
+
+---
+
+## System Overview
+
+The `/system-overview` page provides a high-level dashboard of all your systems:
+
+- Lists every system with its total asset count
+- Click a system card to filter and view only the assets tagged to it
+- Manage systems (create/rename/delete) without leaving the overview
+- Uses the same Ask AI chat panel available in the file inspector
+
+---
+
 ## EOS Status Indicators
 
 Any asset whose end-of-support date has already passed is marked with a red outlined **EOS** badge in the date column. Dates are validated against time fetched from NTP servers (`pool.ntp.org`), falling back to local system time if NTP is unavailable.
@@ -135,13 +159,14 @@ Any asset whose end-of-support date has already passed is marked with a red outl
 
 ```
 hardware-eos/
-├── webpage.py                  # Flask routes, SSE pipeline, export, caching
+├── webpage.py                  # Flask routes, SSE pipeline, export, caching, system API
 ├── unified_chat.py             # Ask AI chat backend (RAG + Gemini)
-├── models.py                   # SQLAlchemy ORM models (ProductEOS, SupportTier)
+├── models.py                   # SQLAlchemy ORM models (ProductEOS, SupportTier, System, ProductSystem)
 ├── classes.py                  # Helper utilities for data processing
 ├── prompt.py                   # Gemini client setup and API logic
 ├── templates/
-│   ├── file-inspector.html     # Main single-page UI
+│   ├── file-inspector.html     # Main single-page UI (with system tagging)
+│   ├── system-overview.html    # System Overview dashboard
 │   └── login.html              # Login page
 ├── static/css/
 │   └── styles.css              # Dark theme, layout
@@ -170,6 +195,10 @@ Environment variables (set in `.env`, loaded by Docker Compose):
 | `APP_SECRET_KEY` | `change-this-secret-key` | Flask session signing key |
 | `APP_ADMIN_PASSWORD` | `changeme` | Login password for the `admin` user |
 | `APP_ADMIN_PASSWORD_HASH` | *(unset)* | Optional Werkzeug password hash — overrides plaintext password |
+| `NTP_SERVER` | `pool.ntp.org` | NTP host used for EOS date validation |
+| `NTP_ENABLED` | `1` | Set to `0`, `false`, or `no` to skip NTP and use local UTC time |
+| `NTP_CACHE_TTL_SECONDS` | `300` | How long (in seconds) to reuse a cached NTP result |
+| `NTP_WARN_INTERVAL_SECONDS` | `900` | Minimum seconds between repeated NTP-failure log warnings |
 
 The Gemini API key is read exclusively from `keys.json`, which is volume-mounted read-only into the container.
 
