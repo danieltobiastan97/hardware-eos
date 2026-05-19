@@ -167,7 +167,7 @@ async def process_line(string, client, config, instruct):
     content = instruct + "\n\nProcess this asset: " + safety_input
 
     response = client.models.generate_content(
-        model="gemini-3-flash-preview",
+        model="gemini-3.1-flash-lite",
         contents=content,
         config=config
     )
