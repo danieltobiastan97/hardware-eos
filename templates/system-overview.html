@@ -1,0 +1,1105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Asset Lifecycle Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Fraunces:ital,wght@0,300;0,600;1,300&display=swap" rel="stylesheet"/>
+  <link rel="stylesheet" href="/static/css/styles.css?v=20260408b">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+</head>
+<body>
+<button class="ai-chat-btn" id="aiChatBtn" title="Ask AI about assets">
+  <svg class="ai-chat-icon" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+    <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#ai_chat_gradient)"/>
+    <defs>
+      <linearGradient id="ai_chat_gradient" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+        <stop offset="0%" stop-color="#4285f4"/>
+        <stop offset="50%" stop-color="#a259ff"/>
+        <stop offset="100%" stop-color="#ea4335"/>
+      </linearGradient>
+    </defs>
+  </svg>
+  <span>Ask AI <span style="font-size: 0.7em; opacity: 0.7;">(Beta)</span></span>
+</button>
+
+<div class="ai-chat-modal" id="aiChatModal">
+  <div class="ai-chat-container">
+    <div class="ai-chat-header">
+      <div class="ai-chat-title-wrap">
+        <svg class="ai-chat-header-icon" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M14 28C14 26.0633 13.6267 24.2433 12.88 22.54C12.1567 20.8367 11.165 19.355 9.905 18.095C8.645 16.835 7.16333 15.8433 5.46 15.12C3.75667 14.3733 1.93667 14 0 14C1.93667 14 3.75667 13.6383 5.46 12.915C7.16333 12.1683 8.645 11.165 9.905 9.905C11.165 8.645 12.1567 7.16333 12.88 5.46C13.6267 3.75667 14 1.93667 14 0C14 1.93667 14.3617 3.75667 15.085 5.46C15.8317 7.16333 16.835 8.645 18.095 9.905C19.355 11.165 20.8367 12.1683 22.54 12.915C24.2433 13.6383 26.0633 14 28 14C26.0633 14 24.2433 14.3733 22.54 15.12C20.8367 15.8433 19.355 16.835 18.095 18.095C16.835 19.355 15.8317 20.8367 15.085 22.54C14.3617 24.2433 14 26.0633 14 28Z" fill="url(#ai_modal_gradient)"/>
+          <defs>
+            <linearGradient id="ai_modal_gradient" x1="0" y1="0" x2="28" y2="28" gradientUnits="userSpaceOnUse">
+              <stop offset="0%" stop-color="#4285f4"/>
+              <stop offset="50%" stop-color="#a259ff"/>
+              <stop offset="100%" stop-color="#ea4335"/>
+            </linearGradient>
+          </defs>
+        </svg>
+        <h2>Ask AI <span style="font-size: 0.7em; font-weight: 400; opacity: 0.7;">(Beta)</span></h2>
+      </div>
+      <div class="ai-chat-header-actions">
+        <button class="ai-chat-clear" id="aiChatClear" title="Clear chat history">Clear</button>
+        <button class="ai-chat-close" id="aiChatClose" title="Close chat">&times;</button>
+      </div>
+    </div>
+    <div class="ai-chat-content" id="aiChatContent">
+      <div class="ai-chat-thread" id="aiChatThread">
+        <div class="ai-chat-day">Today</div>
+        <div class="ai-bubble ai-bubble-ai" id="aiWelcomeBubble">
+          <p>Hi, I can help with EOS/EOL questions about your assets. What would you like to check?</p>
+          <span class="ai-bubble-time" id="aiWelcomeTime"></span>
+        </div>
+      </div>
+    </div>
+    <div class="ai-chat-input-wrap">
+      <input class="ai-chat-input" id="aiChatInput" type="text" placeholder="Ask about EOS/EOL for an asset...">
+      <button class="ai-chat-send" id="aiChatSend" type="button">Send</button>
+    </div>
+  </div>
+</div>
+
+<div class="beta-banner">⚠️ Beta — AI-generated results may not be accurate. Please validate before use.</div>
+
+<!-- Manage Systems Modal -->
+<div class="modal" id="overviewSystemsModal" style="display:none;">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Manage Systems</h3>
+      <button class="modal-close" id="closeOverviewSystemsModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="systems-input-wrap">
+        <input type="text" id="overviewNewSystemInput" class="system-input" placeholder="Enter new system name...">
+        <button id="btnOverviewAddSystem" class="btn-system" type="button">Add System</button>
+      </div>
+      <div class="systems-list" id="overviewSystemsList"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Tag Asset Modal -->
+<div class="modal" id="overviewTagAssetModal" style="display:none;">
+  <div class="modal-content modal-content-sm">
+    <div class="modal-header">
+      <h3>Tag Systems to Asset</h3>
+      <button class="modal-close" id="closeOverviewTagAssetModal">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="asset-name" id="overviewTagAssetName"></div>
+      <div class="systems-checkbox-list" id="overviewTagSystemsCheckboxList"></div>
+      <div class="modal-footer">
+        <button id="btnCancelOverviewTagAsset" class="btn-secondary" type="button">Cancel</button>
+        <button id="btnSaveOverviewTagAsset" class="btn-primary" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<a class="page-nav-fab page-fade-link" href="/" title="Back to home">Back to Home</a>
+
+<div class="container">
+  <div class="header">
+    <div class="header-main">
+      <div class="header-copy">
+        <div class="header-eyebrow-wrap">
+          <p class="eyebrow">// Asset EOS/EOL tracker</p>
+        </div>
+        <h1>Asset Intelligence<br/><em>Tracker</em></h1>
+        <p class="subtitle">upload → process → preview — all in one page</p>
+      </div>
+    </div>
+    <div class="header-actions">
+      <form method="post" action="/logout">
+        <button class="btn-logout" type="submit">Logout</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="overview-controls">
+    <div class="system-filter-wrap">
+      <label for="overviewSystemSelect">System:</label>
+      <select id="overviewSystemSelect" class="system-filter">
+      </select>
+    </div>
+    <div class="overview-actions">
+      <button class="btn-systems-mgmt" id="btnOverviewSystemsMgmt" type="button" title="Manage systems">
+        <span>⚙️</span>
+        <span>Manage Systems</span>
+      </button>
+      <button class="btn-export-individual" id="btnOverviewExport" type="button" title="Export this system to CSV" disabled>
+        <span>💾</span>
+        <span>Export</span>
+      </button>
+    </div>
+  </div>
+
+  <div class="tables-container visible" id="overviewTables">
+    <div class="table-section" id="overviewHwSection" style="display:none;">
+      <div class="table-header">
+        <span class="table-title">// assets</span>
+        <span class="table-meta" id="overviewHwMeta"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="overview-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th></th>
+              <th>Name</th>
+              <th>Type</th>
+              <th>EOS Date</th>
+              <th>Confidence</th>
+              <th>Systems</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="overviewHwBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="table-section" id="overviewSwSection" style="display:none;">
+      <div class="table-header">
+        <span class="table-title">// assets</span>
+        <span class="table-meta" id="overviewSwMeta"></span>
+      </div>
+      <div class="table-wrap">
+        <table class="overview-table">
+          <thead>
+            <tr>
+              <th></th>
+              <th></th>
+              <th>Name</th>
+              <th>Type</th>
+              <th>EOS Date</th>
+              <th>Confidence</th>
+              <th>Systems</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody id="overviewSwBody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="overview-empty" id="overviewEmpty">No tagged assets found for this system.</div>
+  </div>
+</div>
+
+<script>
+  const overviewSystemSelect = document.getElementById('overviewSystemSelect');
+  const overviewEmpty = document.getElementById('overviewEmpty');
+  const btnOverviewExport = document.getElementById('btnOverviewExport');
+  const btnOverviewSystemsMgmt = document.getElementById('btnOverviewSystemsMgmt');
+  const overviewSystemsModal = document.getElementById('overviewSystemsModal');
+  const closeOverviewSystemsModal = document.getElementById('closeOverviewSystemsModal');
+  const overviewNewSystemInput = document.getElementById('overviewNewSystemInput');
+  const btnOverviewAddSystem = document.getElementById('btnOverviewAddSystem');
+  const overviewSystemsList = document.getElementById('overviewSystemsList');
+  let allOverviewSystems = [];
+
+  // Tag-asset modal
+  const overviewTagAssetModal = document.getElementById('overviewTagAssetModal');
+  const closeOverviewTagAssetModal = document.getElementById('closeOverviewTagAssetModal');
+  const overviewTagAssetName = document.getElementById('overviewTagAssetName');
+  const overviewTagSystemsCheckboxList = document.getElementById('overviewTagSystemsCheckboxList');
+  const btnCancelOverviewTagAsset = document.getElementById('btnCancelOverviewTagAsset');
+  const btnSaveOverviewTagAsset = document.getElementById('btnSaveOverviewTagAsset');
+  let activeOverviewTagProductId = null;
+
+  const overviewHwSection = document.getElementById('overviewHwSection');
+  const overviewSwSection = document.getElementById('overviewSwSection');
+  const overviewHwBody = document.getElementById('overviewHwBody');
+  const overviewSwBody = document.getElementById('overviewSwBody');
+  const overviewHwMeta = document.getElementById('overviewHwMeta');
+  const overviewSwMeta = document.getElementById('overviewSwMeta');
+
+  let systems = [];
+  let currentProducts = [];
+  const currentRowsByType = { hw: [], sw: [] };
+
+  function setOverviewStatus(_message) {
+    // Summary status UI intentionally removed from overview header.
+  }
+
+  function escHtml(value) {
+    return String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  }
+
+  function renderSystemBadges(list, productId) {
+    if (!Array.isArray(list) || list.length === 0) {
+      return '<span class="badge badge-system-empty">—</span>';
+    }
+    const title = list.map(s => s.name).join(', ');
+    return '<span class="system-badge-wrap" title="' + escHtml(title) + '">' + list
+      .map(s => '<span class="badge badge-system">' + escHtml(s.name) + '</span>')
+      .join('') + '</span>';
+  }
+
+  async function untagSystem(event, productId, systemId) {
+    event.stopPropagation();
+    const btn = event.target;
+    btn.disabled = true;
+    try {
+      const res = await fetch(`/api/products/${productId}/systems/${systemId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to remove system');
+
+      // Update both in-memory arrays and re-render affected cells
+      ['hw', 'sw'].forEach(typeKey => {
+        (currentRowsByType[typeKey] || []).forEach((row, idx) => {
+          if (Number(row.id) !== productId) return;
+          row.Systems = (row.Systems || []).filter(s => Number(s.id) !== systemId);
+          // Update the systems cell in the DOM
+          const tr = document.querySelector(`tr[data-row-id="row-${typeKey}-${idx}"]`);
+          if (tr) {
+            const tdSystems = tr.cells[6];
+            if (tdSystems) tdSystems.innerHTML = renderSystemBadges(row.Systems, productId);
+          }
+          // Also update currentProducts
+          const cp = currentProducts.find(p => Number(p.id) === productId);
+          if (cp) cp.Systems = row.Systems;
+        });
+      });
+
+      // If this product no longer belongs to the selected system, remove the row from view
+      const selectedSystemId = Number(overviewSystemSelect.value);
+      if (selectedSystemId === systemId) {
+        await loadSystemAssets();
+      }
+    } catch (err) {
+      btn.disabled = false;
+      console.error(err);
+    }
+  }
+
+  function getConfidenceExplanation(score) {
+    if (score >= 1.0) return 'Direct exact date from official vendor documentation.';
+    if (score >= 0.9) return 'Official broad timeframe or strong reputable agreement.';
+    if (score >= 0.7) return 'Single reputable source or verified vendor staff statement.';
+    if (score >= 0.4) return 'Aggregator/forum consensus without primary source.';
+    return 'Conflicting or insufficient evidence.';
+  }
+
+  async function openOverviewTagAssetModal(productId, productName) {
+    if (!productId) return;
+    activeOverviewTagProductId = Number(productId);
+    overviewTagAssetName.textContent = productName || 'Unknown asset';
+
+    try {
+      const [assignedRes, allRes] = await Promise.all([
+        fetch(`/api/products/${activeOverviewTagProductId}/systems`),
+        fetch('/api/systems')
+      ]);
+      const assigned = assignedRes.ok ? await assignedRes.json() : [];
+      const allSys = allRes.ok ? await allRes.json() : [];
+      const assignedSet = new Set((assigned || []).map(s => Number(s.id)));
+
+      overviewTagSystemsCheckboxList.innerHTML = allSys.map(system => `
+        <label class="checkbox-label">
+          <input type="checkbox" value="${system.id}" ${assignedSet.has(Number(system.id)) ? 'checked' : ''}>
+          <span>${escHtml(system.name)}</span>
+        </label>
+      `).join('');
+
+      overviewTagAssetModal.classList.add('active');
+      overviewTagAssetModal.style.display = 'flex';
+    } catch (err) {
+      console.error('Failed to load systems for asset:', err);
+    }
+  }
+
+  async function saveOverviewAssetSystems() {
+    if (!activeOverviewTagProductId) return;
+    const checked = Array.from(overviewTagSystemsCheckboxList.querySelectorAll('input[type="checkbox"]:checked'))
+      .map(el => Number(el.value));
+
+    try {
+      const curRes = await fetch(`/api/products/${activeOverviewTagProductId}/systems`);
+      const current = curRes.ok ? await curRes.json() : [];
+      const currentSet = new Set(current.map(s => Number(s.id)));
+
+      for (const sid of checked) {
+        if (!currentSet.has(sid)) {
+          await fetch(`/api/products/${activeOverviewTagProductId}/systems`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ system_id: sid })
+          });
+        }
+      }
+      for (const sid of currentSet) {
+        if (!checked.includes(sid)) {
+          await fetch(`/api/products/${activeOverviewTagProductId}/systems/${sid}`, { method: 'DELETE' });
+        }
+      }
+
+      // Build updated systems list for in-memory update
+      const allRes = await fetch('/api/systems');
+      const allSys = allRes.ok ? await allRes.json() : [];
+      const updatedSystems = allSys.filter(s => checked.includes(Number(s.id)));
+
+      // Update in-memory rows and re-render cells
+      const pid = activeOverviewTagProductId;
+      ['hw', 'sw'].forEach(typeKey => {
+        (currentRowsByType[typeKey] || []).forEach((row, idx) => {
+          if (Number(row.id) !== pid) return;
+          row.Systems = updatedSystems;
+          const cp = currentProducts.find(p => Number(p.id) === pid);
+          if (cp) cp.Systems = updatedSystems;
+          const tr = document.querySelector(`tr[data-row-id="row-${typeKey}-${idx}"]`);
+          if (tr) {
+            const tdSystems = tr.cells[6];
+            if (tdSystems) tdSystems.innerHTML = renderSystemBadges(updatedSystems, pid);
+          }
+        });
+      });
+
+      overviewTagAssetModal.classList.remove('active');
+      overviewTagAssetModal.style.display = 'none';
+
+      // Reload if the selected system filter is affected
+      await loadSystemAssets();
+    } catch (err) {
+      console.error('Failed to save systems:', err);
+    }
+  }
+
+  if (closeOverviewTagAssetModal) {
+    closeOverviewTagAssetModal.addEventListener('click', () => {
+      overviewTagAssetModal.classList.remove('active');
+      overviewTagAssetModal.style.display = 'none';
+    });
+  }
+  if (btnCancelOverviewTagAsset) {
+    btnCancelOverviewTagAsset.addEventListener('click', () => {
+      overviewTagAssetModal.classList.remove('active');
+      overviewTagAssetModal.style.display = 'none';
+    });
+  }
+  if (btnSaveOverviewTagAsset) {
+    btnSaveOverviewTagAsset.addEventListener('click', saveOverviewAssetSystems);
+  }
+
+  // Close modal on backdrop click
+  if (overviewTagAssetModal) {
+    overviewTagAssetModal.addEventListener('click', e => {
+      if (e.target === overviewTagAssetModal) {
+        overviewTagAssetModal.classList.remove('active');
+        overviewTagAssetModal.style.display = 'none';
+      }
+    });
+  }
+
+  function toggleOverviewExpand(mainRow, expandRow) {
+    const isOpen = mainRow.classList.contains('row-expanded');
+    if (isOpen) {
+      mainRow.classList.remove('row-expanded');
+      expandRow.style.display = 'none';
+    } else {
+      mainRow.classList.add('row-expanded');
+      expandRow.style.display = 'table-row';
+    }
+  }
+
+  function rowSetSpinning(type, index) {
+    const spinner = document.getElementById(`spinner-${type}-${index}`);
+    const icon = document.getElementById(`icon-${type}-${index}`);
+    if (spinner) spinner.classList.add('active');
+    if (icon) {
+      icon.textContent = '';
+      icon.classList.remove('visible');
+    }
+  }
+
+  function parseMaybeJSONArray(value) {
+    if (Array.isArray(value)) return value;
+    if (typeof value === 'string' && value.trim().startsWith('[')) {
+      try {
+        return JSON.parse(value);
+      } catch (_) {
+        return [];
+      }
+    }
+    return [];
+  }
+
+  function updateExpandContent(type, index, row) {
+    const expandTd = document.querySelector(`#expand-${type}-${index} td`);
+    if (!expandTd) return;
+
+    const summary = row.Summary || '';
+    const support = row['Support Model'] || 'N/A';
+    const urls = parseMaybeJSONArray(row['Source URLs']);
+    const tiers = parseMaybeJSONArray(row['Support Tiers']);
+
+    expandTd.innerHTML = `
+      <div class="expand-content-grid">
+        <div>
+          <div class="expand-section">
+            <div class="expand-section-title">Executive Summary</div>
+            <div class="expand-value">${summary || 'No summary available.'}</div>
+          </div>
+
+          <div class="expand-section">
+            <div class="expand-section-title">Support Model</div>
+            <div class="support-model-box">
+              <div class="expand-value">${support}</div>
+            </div>
+          </div>
+
+          <div class="expand-section">
+            <div class="expand-section-title">Sources</div>
+            ${urls.length > 0
+              ? `<div class="sources-list">${urls.map(u => {
+                  let host = u;
+                  try { host = new URL(u).hostname; } catch (_) {}
+                  return `<a href="${u}" target="_blank" class="source-link">🔗 ${host}</a>`;
+                }).join('')}</div>`
+              : '<div class="expand-value" style="color:#666;">No sources available.</div>'
+            }
+          </div>
+        </div>
+
+        <div>
+          <div class="expand-section">
+            <div class="expand-section-title">Lifecycle Milestones</div>
+            ${tiers.length > 0
+              ? `<table class="tiers-table"><thead><tr><th>Tier</th><th>End Date</th></tr></thead><tbody>
+                ${tiers.map(t => `<tr><td>${t.Tier || ''}</td><td>${t.EndDate || ''}</td></tr>`).join('')}
+               </tbody></table>`
+              : '<div class="expand-value" style="color:#666;">No milestones available.</div>'
+            }
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  async function refreshOverviewItem(type, index) {
+    const icon = document.getElementById(`icon-${type}-${index}`);
+    const row = (currentRowsByType[type] || [])[index];
+    if (!icon || !row || !row.Name) return;
+
+    const originalChar = icon.textContent || '◈';
+    icon.textContent = '↻';
+    icon.classList.add('refreshing');
+    icon.style.color = '';
+    rowSetSpinning(type, index);
+
+    try {
+      const response = await fetch('/refresh-item', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          item_name: row.Name,
+          item_type: type
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || data.error) throw new Error(data.error || 'Refresh failed');
+
+      const updated = data.result || {};
+      currentRowsByType[type][index] = { ...row, ...updated };
+
+      const tr = document.querySelector(`tr[data-row-id="row-${type}-${index}"]`);
+      if (!tr) return;
+
+      const tdEOS = tr.cells[4];
+      if (tdEOS) {
+        const eosDate = updated['EOS Date'] || row['EOS Date'] || 'N/A';
+        const isEosPassed = updated['is_eos_passed'] === true || updated['is_eos_passed'] === 'true';
+        if (isEosPassed) {
+          tdEOS.innerHTML = '<div style="display:flex;align-items:center;gap:8px;"><span>' + escHtml(eosDate) + '</span><div style="background-color:transparent;color:#dc2626;border:1px solid #dc2626;padding:2px 6px;border-radius:3px;font-size:0.75rem;font-weight:600;white-space:nowrap;">EOS</div></div>';
+        } else {
+          tdEOS.textContent = eosDate;
+        }
+      }
+
+      const tdConf = tr.cells[5];
+      if (tdConf) {
+        const c = parseFloat(updated.Confidence ?? row.Confidence) || 0;
+        const w = Math.max(c * 100, 5);
+        const cls = c >= 0.8 ? 'high' : c >= 0.5 ? 'med' : 'low';
+        tdConf.innerHTML = '<div class="confidence-bar" title="' + escHtml(getConfidenceExplanation(c)) + '"><div class="confidence-track"><div class="confidence-fill ' + cls + '" style="width:' + w + '%"></div></div><span class="confidence-score">' + c.toFixed(2) + '</span></div>';
+      }
+
+      const tdSystems = tr.cells[6];
+      if (tdSystems) {
+        const pid = Number(currentRowsByType[type][index]?.id || row.id || 0);
+        tdSystems.innerHTML = renderSystemBadges(updated.Systems || row.Systems || [], pid);
+      }
+
+      updateExpandContent(type, index, currentRowsByType[type][index]);
+
+      const spinner = document.getElementById(`spinner-${type}-${index}`);
+      if (spinner) spinner.classList.remove('active');
+
+      icon.classList.remove('refreshing');
+      icon.classList.add('visible');
+      icon.classList.remove('cached');
+      icon.textContent = '✓';
+      icon.style.color = '#2ecc71';
+      icon.title = 'Processed by AI (fresh) — click to retrigger API';
+      icon.onmouseenter = () => { if (!icon.classList.contains('refreshing')) icon.textContent = '↻'; };
+      icon.onmouseleave = () => { if (!icon.classList.contains('refreshing')) icon.textContent = '✓'; };
+      icon.onclick = e => { e.stopPropagation(); refreshOverviewItem(type, index); };
+
+      setOverviewStatus(`Refreshed: ${currentRowsByType[type][index].Name || row.Name}`);
+    } catch (err) {
+      const spinner = document.getElementById(`spinner-${type}-${index}`);
+      if (spinner) spinner.classList.remove('active');
+
+      icon.classList.remove('refreshing');
+      icon.classList.add('visible');
+      icon.textContent = originalChar;
+      icon.style.color = '#ff5c38';
+      icon.title = 'Refresh failed — click to retry';
+      icon.onclick = e => { e.stopPropagation(); refreshOverviewItem(type, index); };
+      setOverviewStatus(`Error: ${err.message}`);
+    }
+  }
+
+  function renderRows(rows, bodyEl, typeKey) {
+    bodyEl.innerHTML = '';
+    rows.forEach((row, i) => {
+      const tr = document.createElement('tr');
+      tr.className = 'expandable-row';
+      tr.tabIndex = 0;
+      tr.setAttribute('data-row-id', `row-${typeKey}-${i}`);
+
+      const tdIndex = document.createElement('td');
+      tdIndex.className = 'row-num';
+      tdIndex.textContent = `${i + 1}.`;
+      tr.appendChild(tdIndex);
+
+      const tdChevron = document.createElement('td');
+      tdChevron.innerHTML = '<span class="row-chevron">▶</span>';
+      tr.appendChild(tdChevron);
+
+      const tdName = document.createElement('td');
+      tdName.className = 'name-cell';
+      tdName.style.fontWeight = '500';
+      tdName.title = row.Name || '';
+      tdName.textContent = row.Name || '';
+      tr.appendChild(tdName);
+
+      const tdType = document.createElement('td');
+      const typeStr = String(row['Hardware/Software'] || '').toLowerCase();
+      if (typeStr.includes('software')) tdType.innerHTML = '<span class="type-badge sw">SW</span>';
+      else if (typeStr.includes('hardware')) tdType.innerHTML = '<span class="type-badge hw">HW</span>';
+      else tdType.innerHTML = '<span class="type-badge" style="opacity:0.35;">—</span>';
+      tr.appendChild(tdType);
+
+      const tdEOS = document.createElement('td');
+      tdEOS.className = 'eos-date-cell';
+      const eosDate = row['EOS Date'] || 'N/A';
+      const passed = row['is_eos_passed'] === true || row['is_eos_passed'] === 'true';
+      if (passed) {
+        tdEOS.innerHTML = '<div style="display:flex;align-items:center;gap:8px;"><span>' + escHtml(eosDate) + '</span><div style="background-color:transparent;color:#dc2626;border:1px solid #dc2626;padding:2px 6px;border-radius:3px;font-size:0.75rem;font-weight:600;white-space:nowrap;">EOS</div></div>';
+      } else {
+        tdEOS.textContent = eosDate;
+      }
+      tr.appendChild(tdEOS);
+
+      const tdConf = document.createElement('td');
+      const confidence = parseFloat(row.Confidence) || 0;
+      const w = Math.max(confidence * 100, 5);
+      const cls = confidence >= 0.8 ? 'high' : confidence >= 0.5 ? 'med' : 'low';
+      tdConf.innerHTML = '<div class="confidence-bar" title="' + escHtml(getConfidenceExplanation(confidence)) + '"><div class="confidence-track"><div class="confidence-fill ' + cls + '" style="width:' + w + '%"></div></div><span class="confidence-score">' + confidence.toFixed(2) + '</span></div>';
+      tr.appendChild(tdConf);
+
+      const tdSystems = document.createElement('td');
+      tdSystems.className = 'systems-cell';
+      tdSystems.style.cursor = 'pointer';
+      tdSystems.title = 'Click to manage systems';
+      tdSystems.innerHTML = renderSystemBadges(row.Systems || [], row.id);
+      tdSystems.addEventListener('click', e => {
+        if (e.target.closest('.badge-untag')) return;
+        e.stopPropagation();
+        const pid = Number(row.id || 0);
+        if (!pid) return;
+        openOverviewTagAssetModal(pid, row.Name);
+      });
+      tr.appendChild(tdSystems);
+
+      const tdStatus = document.createElement('td');
+      tdStatus.className = 'status-cell';
+      tdStatus.innerHTML = `
+        <div class="row-spinner" id="spinner-${typeKey}-${i}"></div>
+        <span class="row-status-icon visible cached" id="icon-${typeKey}-${i}" title="Retrieved from database — click to refresh from API">◈</span>
+      `;
+      const statusIcon = tdStatus.querySelector('.row-status-icon');
+      if (statusIcon) {
+        statusIcon.style.color = '#ff9800';
+        statusIcon.onmouseenter = () => { if (!statusIcon.classList.contains('refreshing')) statusIcon.textContent = '◈ ↻'; };
+        statusIcon.onmouseleave = () => { if (!statusIcon.classList.contains('refreshing')) statusIcon.textContent = '◈'; };
+        statusIcon.onclick = e => {
+          e.stopPropagation();
+          refreshOverviewItem(typeKey, i);
+        };
+      }
+      tr.appendChild(tdStatus);
+
+      const expandTr = document.createElement('tr');
+      expandTr.className = 'expand-row';
+      expandTr.id = `expand-${typeKey}-${i}`;
+      expandTr.style.display = 'none';
+      const expandTd = document.createElement('td');
+      expandTd.colSpan = 8;
+
+      expandTd.innerHTML = '';
+      expandTr.appendChild(expandTd);
+
+      tr.addEventListener('click', e => {
+        if (e.target.closest('.status-cell') || e.target.closest('.systems-cell')) return;
+        toggleOverviewExpand(tr, expandTr);
+      });
+      tr.addEventListener('keydown', e => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          toggleOverviewExpand(tr, expandTr);
+        }
+      });
+
+      bodyEl.appendChild(tr);
+      bodyEl.appendChild(expandTr);
+      updateExpandContent(typeKey, i, row);
+    });
+  }
+
+  async function exportCurrentSystem() {
+    const ids = Array.from(new Set(currentProducts.map(p => Number(p.id)).filter(id => id > 0)));
+    if (ids.length === 0) {
+      setOverviewStatus('No saved assets to export for this system.');
+      return;
+    }
+
+    btnOverviewExport.disabled = true;
+    const prevTitle = btnOverviewExport.title;
+    btnOverviewExport.title = 'Exporting…';
+    try {
+      const response = await fetch('/export-csv', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids })
+      });
+      if (!response.ok) throw new Error('Export failed');
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'system_overview_export.csv';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      setOverviewStatus(`Error: ${err.message}`);
+    } finally {
+      btnOverviewExport.disabled = false;
+      btnOverviewExport.title = prevTitle;
+    }
+  }
+
+  async function loadSystems() {
+    const res = await fetch('/api/systems');
+    if (!res.ok) throw new Error('Failed to load systems');
+    systems = await res.json();
+
+    overviewSystemSelect.innerHTML = '';
+    systems.forEach(system => {
+      const opt = document.createElement('option');
+      opt.value = String(system.id);
+      opt.textContent = `${system.name} (${system.asset_count})`;
+      overviewSystemSelect.appendChild(opt);
+    });
+
+    if (systems.length > 0) {
+      overviewSystemSelect.value = String(systems[0].id);
+      await loadSystemAssets();
+    }
+  }
+
+  async function loadSystemAssets() {
+    const selected = overviewSystemSelect.value;
+    if (!selected) {
+      currentProducts = [];
+      setOverviewStatus('No system selected.');
+      overviewHwSection.style.display = 'none';
+      overviewSwSection.style.display = 'none';
+      overviewEmpty.style.display = 'block';
+      btnOverviewExport.disabled = true;
+      return;
+    }
+
+    const system = systems.find(s => String(s.id) === String(selected));
+    const res = await fetch(`/api/products?systems=${encodeURIComponent(selected)}`);
+    if (!res.ok) throw new Error('Failed to fetch system assets');
+    const products = await res.json();
+    currentProducts = products;
+
+    const hwRows = products.filter(p => String(p['Hardware/Software'] || '').toLowerCase().includes('hardware'));
+    const swRows = products.filter(p => String(p['Hardware/Software'] || '').toLowerCase().includes('software'));
+
+    setOverviewStatus(`${system ? system.name : 'System'} • ${products.length} tagged asset${products.length === 1 ? '' : 's'}`);
+    btnOverviewExport.disabled = products.length === 0;
+
+    if (hwRows.length > 0) {
+      currentRowsByType.hw = hwRows.map(x => ({ ...x }));
+      renderRows(currentRowsByType.hw, overviewHwBody, 'hw');
+      overviewHwMeta.innerHTML = `${hwRows.length} <span>rows</span>`;
+      overviewHwSection.style.display = 'block';
+    } else {
+      currentRowsByType.hw = [];
+      overviewHwBody.innerHTML = '';
+      overviewHwSection.style.display = 'none';
+    }
+
+    if (swRows.length > 0) {
+      currentRowsByType.sw = swRows.map(x => ({ ...x }));
+      renderRows(currentRowsByType.sw, overviewSwBody, 'sw');
+      overviewSwMeta.innerHTML = `${swRows.length} <span>rows</span>`;
+      overviewSwSection.style.display = 'block';
+    } else {
+      currentRowsByType.sw = [];
+      overviewSwBody.innerHTML = '';
+      overviewSwSection.style.display = 'none';
+    }
+
+    overviewEmpty.style.display = (hwRows.length === 0 && swRows.length === 0) ? 'block' : 'none';
+  }
+
+  overviewSystemSelect.addEventListener('change', () => {
+    loadSystemAssets().catch(err => {
+      setOverviewStatus(`Error: ${err.message}`);
+    });
+  });
+
+  btnOverviewExport.addEventListener('click', exportCurrentSystem);
+
+  if (btnOverviewSystemsMgmt) {
+    btnOverviewSystemsMgmt.addEventListener('click', () => {
+      overviewSystemsModal.classList.add('active');
+      overviewSystemsModal.style.display = 'flex';
+    });
+  }
+
+  if (closeOverviewSystemsModal) {
+    closeOverviewSystemsModal.addEventListener('click', () => {
+      overviewSystemsModal.classList.remove('active');
+      overviewSystemsModal.style.display = 'none';
+    });
+  }
+
+  const aiChatBtn    = document.getElementById('aiChatBtn');
+  const aiChatModal  = document.getElementById('aiChatModal');
+  const aiChatClose  = document.getElementById('aiChatClose');
+  const aiChatClear  = document.getElementById('aiChatClear');
+  const aiChatThread = document.getElementById('aiChatThread');
+  const aiChatInput  = document.getElementById('aiChatInput');
+  const aiChatSend   = document.getElementById('aiChatSend');
+
+  const aiWelcomeTimeEl = document.getElementById('aiWelcomeTime');
+  if (aiWelcomeTimeEl) {
+    const now = new Date();
+    aiWelcomeTimeEl.textContent = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+  }
+
+  function _aiNow() {
+    const d = new Date();
+    return d.getHours().toString().padStart(2,'0') + ':' + d.getMinutes().toString().padStart(2,'0');
+  }
+
+  function _appendBubble(text, role) {
+    const div = document.createElement('div');
+    div.className = 'ai-bubble ' + (role === 'user' ? 'ai-bubble-user' : 'ai-bubble-ai');
+    div.innerHTML = '<div class="ai-bubble-content"></div><span class="ai-bubble-time">' + _aiNow() + '</span>';
+    const content = div.querySelector('.ai-bubble-content');
+    if (role === 'ai') {
+      try {
+        marked.setOptions({ breaks: true, gfm: true, mangle: false });
+        content.innerHTML = marked.parse(text);
+      } catch (e) {
+        content.textContent = text;
+      }
+    } else {
+      content.textContent = text;
+    }
+    aiChatThread.appendChild(div);
+    aiChatThread.scrollTop = aiChatThread.scrollHeight;
+    if (aiChatThread.parentElement) aiChatThread.parentElement.scrollTop = aiChatThread.parentElement.scrollHeight;
+    return div;
+  }
+
+  function _appendTyping() {
+    const div = document.createElement('div');
+    div.className = 'ai-bubble ai-bubble-ai ai-bubble-typing';
+    div.innerHTML = '<p class="ai-typing-dots"><span>.</span><span>.</span><span>.</span></p>';
+    aiChatThread.appendChild(div);
+    aiChatThread.scrollTop = aiChatThread.scrollHeight;
+    if (aiChatThread.parentElement) aiChatThread.parentElement.scrollTop = aiChatThread.parentElement.scrollHeight;
+    return div;
+  }
+
+  function _removeTyping(el) {
+    if (el && el.parentNode) el.parentNode.removeChild(el);
+  }
+
+  async function sendChatMessage() {
+    if (!aiChatInput || !aiChatSend) return;
+    const msg = aiChatInput.value.trim();
+    if (!msg) return;
+    aiChatInput.value = '';
+    aiChatInput.disabled = true;
+    aiChatSend.disabled = true;
+    _appendBubble(msg, 'user');
+    const typingEl = _appendTyping();
+    try {
+      const res = await fetch('/chat/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: msg })
+      });
+      const data = await res.json();
+      _removeTyping(typingEl);
+      if (res.ok && data.response) {
+        _appendBubble(data.response, 'ai');
+      } else {
+        _appendBubble('Sorry, something went wrong. Please try again.', 'ai');
+      }
+    } catch (err) {
+      _removeTyping(typingEl);
+      _appendBubble('Connection error. Please check your network and try again.', 'ai');
+    } finally {
+      aiChatInput.disabled = false;
+      aiChatSend.disabled = false;
+      aiChatInput.focus();
+    }
+  }
+
+  async function clearChat() {
+    try {
+      const res = await fetch('/chat/clear', { method: 'POST' });
+      if (res.ok) {
+        aiChatThread.innerHTML = '';
+        const welcomeDiv = document.createElement('div');
+        welcomeDiv.className = 'ai-bubble ai-bubble-ai';
+        welcomeDiv.innerHTML = '<p>Chat cleared. What would you like to check now?</p><span class="ai-bubble-time">' + _aiNow() + '</span>';
+        aiChatThread.appendChild(welcomeDiv);
+        aiChatThread.scrollTop = aiChatThread.scrollHeight;
+        if (aiChatInput) aiChatInput.focus();
+      }
+    } catch (err) {
+      console.error('Error clearing chat:', err);
+    }
+  }
+
+  function initAIChat() {
+    if (!aiChatBtn || !aiChatModal || !aiChatClose) return;
+    const isOpen = localStorage.getItem('aiChatOpen') === 'true';
+    if (isOpen) aiChatModal.classList.add('active');
+
+    const chatContainer = document.querySelector('.ai-chat-container');
+    const chatHeader = document.querySelector('.ai-chat-header');
+    if (chatContainer && chatHeader) {
+      let isDragging = false, startX = 0, startMarginLeft = 0;
+      chatHeader.addEventListener('mousedown', function(e) {
+        if (e.target.closest('button')) return;
+        isDragging = true;
+        startX = e.clientX;
+        startMarginLeft = parseInt(window.getComputedStyle(chatContainer).marginLeft) || 0;
+        chatHeader.style.cursor = 'grabbing';
+        e.preventDefault();
+      });
+      document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+        const delta = e.clientX - startX;
+        const maxMargin = Math.max(4, window.innerWidth - chatContainer.offsetWidth - 4);
+        chatContainer.style.marginLeft = Math.max(4, Math.min(startMarginLeft + delta, maxMargin)) + 'px';
+      });
+      document.addEventListener('mouseup', function() {
+        if (isDragging) { isDragging = false; chatHeader.style.cursor = 'grab'; }
+      });
+    }
+
+    aiChatBtn.addEventListener('click', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      const isActive = aiChatModal.classList.contains('active');
+      if (isActive) {
+        aiChatModal.classList.remove('active');
+        localStorage.setItem('aiChatOpen', 'false');
+      } else {
+        aiChatModal.classList.add('active');
+        localStorage.setItem('aiChatOpen', 'true');
+        if (aiChatInput) aiChatInput.focus();
+      }
+    });
+    aiChatClose.addEventListener('click', function(e) {
+      e.preventDefault(); e.stopPropagation();
+      aiChatModal.classList.remove('active');
+      localStorage.setItem('aiChatOpen', 'false');
+    });
+    if (aiChatClear) {
+      aiChatClear.addEventListener('click', function(e) {
+        e.preventDefault(); e.stopPropagation();
+        clearChat();
+      });
+    }
+    aiChatModal.addEventListener('click', function(e) {
+      if (e.target === aiChatModal) {
+        aiChatModal.classList.remove('active');
+        localStorage.setItem('aiChatOpen', 'false');
+      }
+    });
+    if (aiChatSend) aiChatSend.addEventListener('click', sendChatMessage);
+    if (aiChatInput) {
+      aiChatInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
+      });
+    }
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initAIChat);
+  } else {
+    initAIChat();
+  }
+
+  // Smooth page transition for route navigation
+  (function initPageFadeTransitions() {
+    document.body.classList.add('page-fade');
+    requestAnimationFrame(() => {
+      document.body.classList.add('page-fade-in');
+    });
+
+    document.addEventListener('click', event => {
+      const link = event.target.closest('a.page-fade-link');
+      if (!link || !link.href) return;
+
+      try {
+        const targetUrl = new URL(link.href, window.location.href);
+        if (targetUrl.origin !== window.location.origin) return;
+      } catch (_) {
+        return;
+      }
+
+      event.preventDefault();
+      document.body.classList.add('page-fade-out');
+      setTimeout(() => {
+        window.location.href = link.href;
+      }, 180);
+    });
+  })();
+
+  async function loadOverviewSystems() {
+    try {
+      const res = await fetch('/api/systems');
+      if (!res.ok) return;
+      allOverviewSystems = await res.json();
+
+      if (overviewSystemsList) {
+        overviewSystemsList.innerHTML = allOverviewSystems.map(system => {
+          const name = escHtml(system.name);
+          const nameAttr = escHtml(system.name);
+          return `
+            <div class="system-item">
+              <div class="system-main">
+                <div class="system-name">${name}</div>
+                <div class="system-count">${system.asset_count} asset${system.asset_count === 1 ? '' : 's'}</div>
+              </div>
+              <div class="system-actions">
+                <button type="button" class="btn-system-action btn-system-edit" data-system-id="${system.id}" data-system-name="${nameAttr}" title="Edit system">Edit</button>
+                <button type="button" class="btn-system-action btn-system-delete" data-system-id="${system.id}" data-system-name="${nameAttr}" title="Delete system">Delete</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        overviewSystemsList.querySelectorAll('.btn-system-edit').forEach(btn => {
+          btn.addEventListener('click', async event => {
+            event.preventDefault();
+            const id = Number(btn.dataset.systemId || 0);
+            const currentName = btn.dataset.systemName || '';
+            if (!id) return;
+            const renamed = window.prompt('Rename system:', currentName);
+            if (renamed === null) return;
+            const nextName = renamed.trim();
+            if (!nextName || nextName === currentName) return;
+            try {
+              const res = await fetch(`/api/systems/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: nextName })
+              });
+              const payload = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(payload.error || 'Rename failed');
+              await loadOverviewSystems();
+            } catch (err) {
+              alert(`Failed to rename system: ${err.message}`);
+            }
+          });
+        });
+
+        overviewSystemsList.querySelectorAll('.btn-system-delete').forEach(btn => {
+          btn.addEventListener('click', async event => {
+            event.preventDefault();
+            const id = Number(btn.dataset.systemId || 0);
+            const name = btn.dataset.systemName || 'this system';
+            if (!id) return;
+            if (!window.confirm(`Delete system "${name}"?`)) return;
+            try {
+              const res = await fetch(`/api/systems/${id}`, { method: 'DELETE' });
+              const payload = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(payload.error || 'Delete failed');
+              await loadOverviewSystems();
+              await loadSystemAssets();
+            } catch (err) {
+              alert(`Failed to delete system: ${err.message}`);
+            }
+          });
+        });
+      }
+    } catch (_) {}
+  }
+
+  async function createOverviewSystemFromInput() {
+    const name = (overviewNewSystemInput?.value || '').trim();
+    if (!name) return;
+    try {
+      const res = await fetch('/api/systems', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (!res.ok) throw new Error('Failed to create system');
+      overviewNewSystemInput.value = '';
+      await loadOverviewSystems();
+    } catch (_) {
+      alert('Unable to create system.');
+    }
+  }
+
+  if (btnOverviewAddSystem) btnOverviewAddSystem.addEventListener('click', createOverviewSystemFromInput);
+  if (overviewNewSystemInput) {
+    overviewNewSystemInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        createOverviewSystemFromInput();
+      }
+    });
+  }
+
+  loadSystems().catch(err => {
+    setOverviewStatus(`Error: ${err.message}`);
+  });
+  loadOverviewSystems();
+</script>
+</body>
+</html>

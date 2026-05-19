@@ -157,6 +157,60 @@ function clearError() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────
+// PROMPT INJECTION PREVENTION — CLIENT-SIDE VALIDATION
+// ─────────────────────────────────────────────────────────────────────────────────
+
+function detectPromptInjection(userInput) {
+  const msg = String(userInput || '').toLowerCase();
+  
+  // Common prompt injection patterns
+  const suspiciousPatterns = [
+    // Context override attempts
+    'forget your instructions', 'ignore your instructions', 'ignore your system prompt',
+    'what is your system prompt', 'what were your instructions', 'override your settings',
+    
+    // Roleplay override
+    'pretend you are', 'act as if', 'from now on', 'starting now',
+    
+    // Jailbreak attempts
+    'disabled mode', 'ignore all rules', 'rules are now', 'you are now',
+    
+    // Sensitive data requests
+    'show me your source', 'show me your prompt', 'database schema', 
+    'api keys', 'password:', 'secret:', 'internal code',
+    
+    // Breaking context
+    '</asset_name>', '```', 'system:', 'admin:',
+    
+    // Rule modification
+    'new instructions', 'ignore previous', 'override', 'execute'
+  ];
+  
+  for (const pattern of suspiciousPatterns) {
+    if (msg.includes(pattern)) {
+      return { suspicious: true, reason: `Detected injection pattern: "${pattern}"` };
+    }
+  }
+  
+  // Check for excessive length (potential padding attack)
+  if (userInput.length > 2000) {
+    return { suspicious: true, reason: 'Input exceeds 2000 character limit' };
+  }
+  
+  // Check for excessive newlines (formatting bypass)
+  const newlineCount = (userInput.match(/\n/g) || []).length;
+  if (newlineCount > 5) {
+    return { suspicious: true, reason: 'Too many newlines detected' };
+  }
+  
+  return { suspicious: false, reason: '' };
+}
+
+function showInjectionWarning(reason) {
+  showError(`⚠️ Security: ${reason}. Please ask a legitimate question.`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────────
 // SELECTION & CHECKBOX MANAGEMENT
 // ─────────────────────────────────────────────────────────────────────────────────
 
@@ -507,6 +561,14 @@ async function processManualInput() {
   const raw = manualSearchInput.value.trim();
   if (!raw) {
     showError('Please enter a product name to search individually.');
+    manualSearchInput.focus();
+    return;
+  }
+
+  // CLIENT-SIDE: Detect prompt injection in manual input
+  const injectionCheck = detectPromptInjection(raw);
+  if (injectionCheck.suspicious) {
+    showInjectionWarning(injectionCheck.reason);
     manualSearchInput.focus();
     return;
   }
@@ -1383,6 +1445,162 @@ function initAIChat() {
       localStorage.setItem('aiChatOpen', 'false');
     }
   });
+
+  // ───────────────────────────────────────────────────────────────────
+  // AI CHAT MESSAGE SENDING WITH INJECTION PREVENTION
+  // ───────────────────────────────────────────────────────────────────
+  
+  const aiChatInput = document.getElementById('aiChatInput');
+  const aiChatSend = document.getElementById('aiChatSend');
+  const aiChatContent = document.getElementById('aiChatContent');
+  const aiChatClear = document.getElementById('aiChatClear');
+  
+  if (aiChatInput && aiChatSend) {
+    async function sendChatMessage() {
+      const message = aiChatInput.value.trim();
+      
+      if (!message) {
+        return;
+      }
+      
+      // CLIENT-SIDE: Detect prompt injection in chat message
+      const injectionCheck = detectPromptInjection(message);
+      if (injectionCheck.suspicious) {
+        // Show warning in AI chat instead of main error box
+        const warningBubble = document.createElement('div');
+        warningBubble.className = 'ai-bubble ai-bubble-ai';
+        warningBubble.innerHTML = `
+          <p style="color: #ff6b6b; font-weight: 500;">⚠️ Security: ${injectionCheck.reason}</p>
+          <p style="margin-top: 8px; font-size: 0.9em; opacity: 0.8;">Please ask a legitimate question about product EOS/EOL dates.</p>
+          <span class="ai-bubble-time">${new Date().toLocaleTimeString()}</span>
+        `;
+        aiChatContent.appendChild(warningBubble);
+        aiChatContent.scrollTop = aiChatContent.scrollHeight;
+        aiChatInput.value = '';
+        return;
+      }
+      
+      // Add user message to chat
+      const userBubble = document.createElement('div');
+      userBubble.className = 'ai-bubble ai-bubble-user';
+      userBubble.innerHTML = `
+        <p>${escapeHtml(message)}</p>
+        <span class="ai-bubble-time">${new Date().toLocaleTimeString()}</span>
+      `;
+      aiChatContent.appendChild(userBubble);
+      aiChatContent.scrollTop = aiChatContent.scrollHeight;
+      
+      aiChatInput.value = '';
+      aiChatSend.disabled = true;
+      aiChatSend.textContent = 'Sending...';
+      
+      try {
+        const response = await fetch('/chat/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: message })
+        });
+        
+        const data = await response.json();
+        
+        // Handle different response scenarios
+        if (response.status === 429) {
+          // Token limit reached
+          const limitBubble = document.createElement('div');
+          limitBubble.className = 'ai-bubble ai-bubble-ai';
+          limitBubble.innerHTML = `
+            <p style="color: #ffa94d;">⚠️ ${data.error}</p>
+            <span class="ai-bubble-time">${new Date().toLocaleTimeString()}</span>
+          `;
+          aiChatContent.appendChild(limitBubble);
+        } else if (!response.ok || data.error) {
+          const errorBubble = document.createElement('div');
+          errorBubble.className = 'ai-bubble ai-bubble-ai';
+          errorBubble.innerHTML = `
+            <p style="color: #ff6b6b;">❌ ${escapeHtml(data.error || 'Error processing message')}</p>
+            <span class="ai-bubble-time">${new Date().toLocaleTimeString()}</span>
+          `;
+          aiChatContent.appendChild(errorBubble);
+        } else {
+          // Show AI response
+          const aiBubble = document.createElement('div');
+          aiBubble.className = 'ai-bubble ai-bubble-ai';
+          const responseText = data.response || 'No response from AI';
+          aiBubble.innerHTML = `
+            <p>${escapeHtml(responseText)}</p>
+            <span class="ai-bubble-time">${new Date().toLocaleTimeString()}</span>
+          `;
+          aiChatContent.appendChild(aiBubble);
+          
+          // Show warning if approaching token limit
+          if (data.token_warning) {
+            const warningBubble = document.createElement('div');
+            warningBubble.className = 'ai-bubble ai-bubble-ai';
+            warningBubble.innerHTML = `
+              <p style="font-size: 0.9em; opacity: 0.8;">⚠️ Conversation getting long (${data.conversation_tokens}/${data.token_limit} tokens). Consider starting a new chat soon.</p>
+              <span class="ai-bubble-time">${new Date().toLocaleTimeString()}</span>
+            `;
+            aiChatContent.appendChild(warningBubble);
+          }
+        }
+        
+        aiChatContent.scrollTop = aiChatContent.scrollHeight;
+      } catch (err) {
+        const errorBubble = document.createElement('div');
+        errorBubble.className = 'ai-bubble ai-bubble-ai';
+        errorBubble.innerHTML = `
+          <p style="color: #ff6b6b;">❌ Connection error: ${escapeHtml(err.message)}</p>
+          <span class="ai-bubble-time">${new Date().toLocaleTimeString()}</span>
+        `;
+        aiChatContent.appendChild(errorBubble);
+        aiChatContent.scrollTop = aiChatContent.scrollHeight;
+      } finally {
+        aiChatSend.disabled = false;
+        aiChatSend.textContent = 'Send';
+        aiChatInput.focus();
+      }
+    }
+    
+    aiChatSend.addEventListener('click', sendChatMessage);
+    
+    aiChatInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendChatMessage();
+      }
+    });
+  }
+  
+  // Clear chat history
+  if (aiChatClear) {
+    aiChatClear.addEventListener('click', async () => {
+      try {
+        const response = await fetch('/chat/clear', { method: 'POST' });
+        if (response.ok) {
+          // Reset chat UI
+          if (aiChatContent) {
+            aiChatContent.innerHTML = `
+              <div class="ai-chat-day">Today</div>
+              <div class="ai-bubble ai-bubble-ai" id="aiWelcomeBubble">
+                <p>Hi, I can help with EOS/EOL questions about your assets. What would you like to check?</p>
+                <span class="ai-bubble-time" id="aiWelcomeTime">${new Date().toLocaleTimeString()}</span>
+              </div>
+            `;
+          }
+          if (aiChatInput) aiChatInput.focus();
+        }
+      } catch (err) {
+        console.error('Clear chat error:', err);
+      }
+    });
+  }
+}
+
+// Helper function to escape HTML in chat messages
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
 }
 
 // Initialize AI chat when script loads

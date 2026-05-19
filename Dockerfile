@@ -13,6 +13,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY classes.py models.py prompt.py webpage.py unified_chat.py ./
 COPY prompts/ prompts/
 COPY templates/ templates/
+COPY static/ static/
 
 # uploads/ is created at runtime by the app; no need to COPY it
 RUN mkdir -p uploads

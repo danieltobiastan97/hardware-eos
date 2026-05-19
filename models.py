@@ -60,6 +60,7 @@ class ProductEOS(Base):
     
     # Relationships
     support_tiers = relationship('SupportTier', backref='product', cascade='all, delete-orphan')
+    systems = relationship('System', secondary='product_system', backref='products')
 
     def __repr__(self):
         return f"<ProductEOS {self.name}>"
@@ -75,7 +76,8 @@ class ProductEOS(Base):
             'EOS Date': self.eos_date.isoformat(),
             'Support Tiers': [tier.to_dict() for tier in self.support_tiers],
             'Source URLs': self.source_urls or [],
-            'Confidence': self.confidence
+            'Confidence': self.confidence,
+            'Systems': [{'id': s.id, 'name': s.name} for s in self.systems]
         }
 
 
@@ -98,6 +100,41 @@ class SupportTier(Base):
             'Tier': self.tier,
             'EndDate': self.end_date.isoformat()
         }
+
+
+class System(Base):
+    """Project/Application system for organizing assets."""
+    __tablename__ = 'system'
+
+    id = Column(Integer, primary_key=True)
+    name = Column(String(255), nullable=False, unique=True)
+    created_date = Column(DateTime, default=datetime.utcnow)
+    updated_date = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<System {self.name}>"
+    
+    def to_dict(self):
+        """Convert to JSON-compatible dict."""
+        return {
+            'id': self.id,
+            'name': self.name,
+            'created_date': self.created_date.isoformat(),
+            'updated_date': self.updated_date.isoformat(),
+            'asset_count': len(self.products)
+        }
+
+
+class ProductSystem(Base):
+    """Junction table for many-to-many relationship between products and systems."""
+    __tablename__ = 'product_system'
+
+    product_id = Column(Integer, ForeignKey('product_eos.id'), primary_key=True)
+    system_id = Column(Integer, ForeignKey('system.id'), primary_key=True)
+    created_date = Column(DateTime, default=datetime.utcnow)
+
+    def __repr__(self):
+        return f"<ProductSystem product_id={self.product_id}, system_id={self.system_id}>"
  
 class assetCache(Base):
     """Legacy Asset Model to store the found hardware and software items."""
@@ -243,3 +280,125 @@ class ProductEOSRepo:
         if not product:
             return None
         return product.to_dict()
+    
+    # System Management Methods
+    def create_system(self, name):
+        """Create a new system."""
+        existing = self.session.query(System).filter(func.lower(System.name) == name.lower()).first()
+        if existing:
+            return existing  # Return existing system if already exists
+        system = System(name=name)
+        self.session.add(system)
+        self.session.commit()
+        return system
+    
+    def get_system_by_name(self, name):
+        """Retrieve a system by name."""
+        return self.session.query(System).filter(func.lower(System.name) == name.lower()).first()
+    
+    def get_system_by_id(self, system_id):
+        """Retrieve a system by ID."""
+        return self.session.query(System).get(system_id)
+    
+    def get_all_systems(self):
+        """Retrieve all systems with asset counts."""
+        systems = self.session.query(System).all()
+        return [{
+            'id': s.id,
+            'name': s.name,
+            'asset_count': len(s.products),
+            'created_date': s.created_date.isoformat(),
+            'updated_date': s.updated_date.isoformat()
+        } for s in systems]
+    
+    def add_system_to_product(self, product_id, system_id):
+        """Associate a system with a product."""
+        product = self.session.query(ProductEOS).get(product_id)
+        system = self.session.query(System).get(system_id)
+        
+        if not product or not system:
+            return False
+        
+        # Check if already associated
+        existing = self.session.query(ProductSystem).filter(
+            ProductSystem.product_id == product_id,
+            ProductSystem.system_id == system_id
+        ).first()
+        
+        if existing:
+            return True  # Already associated
+        
+        association = ProductSystem(product_id=product_id, system_id=system_id)
+        self.session.add(association)
+        self.session.commit()
+        return True
+    
+    def remove_system_from_product(self, product_id, system_id):
+        """Remove a system from a product."""
+        association = self.session.query(ProductSystem).filter(
+            ProductSystem.product_id == product_id,
+            ProductSystem.system_id == system_id
+        ).first()
+        
+        if not association:
+            return False
+        
+        self.session.delete(association)
+        self.session.commit()
+        return True
+    
+    def get_systems_by_product(self, product_id):
+        """Get all systems associated with a product."""
+        product = self.session.query(ProductEOS).get(product_id)
+        if not product:
+            return []
+        return [{
+            'id': s.id,
+            'name': s.name
+        } for s in product.systems]
+    
+    def get_products_by_systems(self, system_ids):
+        """Get all products associated with any of the given systems (OR logic)."""
+        if not system_ids:
+            return []
+        
+        products = self.session.query(ProductEOS).join(
+            ProductSystem
+        ).filter(
+            ProductSystem.system_id.in_(system_ids)
+        ).distinct().all()
+        
+        return products
+
+    def update_system(self, system_id, new_name):
+        """Rename an existing system. Returns system, False if not found, None if name conflict."""
+        system = self.session.query(System).get(system_id)
+        if not system:
+            return False
+
+        normalized = (new_name or '').strip()
+        if not normalized:
+            return None
+
+        existing = self.session.query(System).filter(
+            func.lower(System.name) == normalized.lower(),
+            System.id != system_id
+        ).first()
+        if existing:
+            return None
+
+        system.name = normalized
+        self.session.commit()
+        return system
+    
+    def delete_system(self, system_id):
+        """Delete a system and all associations."""
+        system = self.session.query(System).get(system_id)
+        if not system:
+            return False
+        
+        # Delete all associations
+        self.session.query(ProductSystem).filter(ProductSystem.system_id == system_id).delete()
+        self.session.delete(system)
+        self.session.commit()
+        return True

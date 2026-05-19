@@ -11,3 +11,9 @@ ideas.txt
 .git/
 .DS_Store
 docker-compose.override.yml
+node_modules/
+frontend/node_modules/
+npm-debug.log
+.pytest_cache
+.vscode
+.idea

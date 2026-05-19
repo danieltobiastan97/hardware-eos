@@ -33,6 +33,136 @@ class Helper:
             print(f"Error decoding JSON: {e}")
             return None
 
+    @staticmethod
+    def sanitize_asset_name(name):
+        """Escape XML/HTML special chars to prevent tag breakout and injection attacks."""
+        if not isinstance(name, str):
+            name = str(name)
+        name = name.replace("&", "&amp;")
+        name = name.replace("<", "&lt;")
+        name = name.replace(">", "&gt;")
+        name = name.replace('"', "&quot;")
+        name = name.replace("'", "&#39;")
+        return name
+
+    @staticmethod
+    def validate_eos_response(response):
+        """Validate that LLM response matches expected schema and constraints."""
+        required_keys = {"Name", "Hardware/Software", "EOS Date", "Confidence", "Support Model"}
+        
+        # Check if response is a dict with all required keys
+        if not isinstance(response, dict):
+            print(f"Error: Response is not a dict. Got {type(response)}")
+            return False
+        
+        if not required_keys.issubset(response.keys()):
+            missing = required_keys - set(response.keys())
+            print(f"Error: Missing required keys: {missing}")
+            return False
+        
+        # Validate Confidence is a valid float between 0.0-1.0
+        try:
+            confidence = float(response.get("Confidence", -1))
+            if not (0.0 <= confidence <= 1.0):
+                print(f"Error: Confidence {confidence} is out of valid range [0.0, 1.0]")
+                return False
+        except (ValueError, TypeError):
+            print(f"Error: Confidence is not a valid number. Got {response.get('Confidence')}")
+            return False
+        
+        # Validate Support Model is one of allowed values
+        valid_models = {"Fixed", "Rolling", "Version-Based", "NA"}
+        if response.get("Support Model") not in valid_models:
+            print(f"Error: Support Model '{response.get('Support Model')}' not in {valid_models}")
+            return False
+        
+        # Validate Hardware/Software is one of allowed values
+        valid_types = {"Hardware", "Software", "Unknown"}
+        if response.get("Hardware/Software") not in valid_types:
+            print(f"Error: Hardware/Software '{response.get('Hardware/Software')}' not in {valid_types}")
+            return False
+        
+        return True
+
+    @staticmethod
+    def detect_injection_attempt(input_string):
+        """Detect and log suspicious payloads that might indicate injection attempts."""
+        if not isinstance(input_string, str):
+            return False
+        
+        suspicious_patterns = [
+            "</asset_name>",  # Attempting to break out of tag
+            "ignore", "override", "forget",  # Override instructions
+            "system:", "system prompt",  # Request system prompt leak
+            "new instructions", "ignore previous",  # New instruction injection
+            "execute", "run code",  # Code execution attempts
+        ]
+        
+        lower_input = input_string.lower()
+        for pattern in suspicious_patterns:
+            if pattern in lower_input:
+                print(f"⚠️  SUSPICIOUS: Potential injection pattern detected: '{pattern}' in '{input_string[:100]}'")
+                return True
+        
+        return False
+
+    @staticmethod
+    def is_suspicious_chat_input(user_message):
+        """
+        Detect prompt injection attempts in chat messages.
+        Returns tuple: (is_suspicious: bool, reason: str)
+        """
+        if not isinstance(user_message, str):
+            return False, ""
+        
+        msg_lower = user_message.lower()
+        
+        # Prompt injection patterns for chat context
+        injection_patterns = {
+            # Context override attempts
+            "forget your instructions": "Attempting to override system instructions",
+            "ignore your instructions": "Attempting to override system instructions",
+            "ignore your system prompt": "Attempting to access system prompt",
+            "what is your system prompt": "Attempting to leak system prompt",
+            "what were your instructions": "Attempting to leak system prompt",
+            "override your settings": "Attempting to override safety settings",
+            
+            # Roleplay override
+            "pretend you are": "Attempting to override AI role",
+            "act as if": "Attempting to override AI role",
+            "from now on": "Attempting to inject new instructions",
+            "starting now": "Attempting to inject new instructions",
+            
+            # Jailbreak attempts
+            "disabled mode": "Attempting jailbreak mode",
+            "ignore all rules": "Attempting to bypass safety rules",
+            "rules are now": "Attempting to modify behavior rules",
+            "you are now": "Attempting to change AI behavior",
+            
+            # Sensitive data requests
+            "show me your source": "Attempting to access internal code",
+            "show me your prompt": "Attempting to leak system prompt",
+            "database schema": "Attempting to extract database structure",
+            "api keys": "Attempting to extract credentials",
+            "password": "Attempting to extract credentials",
+            "secret": "Attempting to extract sensitive information",
+        }
+        
+        for pattern, reason in injection_patterns.items():
+            if pattern in msg_lower:
+                return True, reason
+        
+        # Detect unusual characters or encoding tricks
+        if len(user_message) > 1000:
+            # Extremely long messages might be padding attacks
+            return True, "Message exceeds reasonable length limit"
+        
+        # Check for multiple newlines (attempting to inject via formatting)
+        if user_message.count('\n') > 3:
+            return True, "Suspicious newline injection pattern"
+        
+        return False, ""
+
     """
     Preprocesses the Excel or CSV file to extract hardware and software lists."""
     def preprocess(self, filename, sheet='Asset List'):

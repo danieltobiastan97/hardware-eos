@@ -4,18 +4,88 @@ All notable changes between branches are documented in this file.
 
 ---
 
-## [beta/v0.3] — 2026-04-07
+## [0.3.1] — 2026-04-10
 
-> Gemini-powered Ask AI feature with multi-turn conversation management, database guardrails, and EOS status indicators.
-> **Status:** Production-ready with Beta label.
+> System grouping, tagging UI, NTP hardening, and prompt condensation on top of v0.3.
+> **Status:** Production-ready.
 
 ### Added
 
-- **Ask AI Chat Feature** — Web-based chat interface powered by Google Gemini 2.5 Flash
-  - Modal popup with Gemini logo button in file inspector toolbar
-  - Natural language queries about EOS/EOL dates for IT assets
-  - Uses Gemini's native web search capability for real-time information
-  - **[PRODUCTION - Beta Status]**
+- **System Overview page** — New `/system-overview` route with a dedicated dashboard listing all systems, their asset counts, and the assets assigned to each
+- **System management** — Create, rename, and delete named systems (projects/applications) to logically group assets; accessible from both the file inspector and the system overview page
+- **Asset system tagging** — Tag individual assets in the file inspector with one or more systems via a dedicated column; bulk-assign a system across all currently selected rows
+- **System REST API** — Full CRUD for systems and product↔system associations:
+  - `GET /api/systems` — list all systems with asset counts
+  - `POST /api/systems` — create a system
+  - `PUT /api/systems/<id>` — rename a system
+  - `DELETE /api/systems/<id>` — delete a system and all its associations
+  - `GET /api/products/<id>/systems` — list systems on a product
+  - `POST /api/products/<id>/systems` — tag a product with a system
+  - `DELETE /api/products/<id>/systems/<system_id>` — remove a system tag from a product
+  - `GET /api/products?systems=<ids>` — filter products by one or more systems (OR logic)
+- **NTP improvements** — Four new environment variables for containerised deployments:
+  - `NTP_SERVER` — override the NTP host (default: `pool.ntp.org`)
+  - `NTP_ENABLED` — set to `0`/`false`/`no` to skip NTP and use local UTC time
+  - `NTP_CACHE_TTL_SECONDS` — how long to reuse a cached NTP result (default: `300`)
+  - `NTP_WARN_INTERVAL_SECONDS` — minimum seconds between repeated NTP-failure warnings (default: `900`)
+- **`.pytest_cache/` added to `.gitignore`**
+
+### Changed
+
+- **`prompts/prompt.txt`** — Condensed pipeline system prompt from ~48 lines to ~15 lines; replaced verbose multi-step instructions with a compact schema-first format while preserving all validation and confidence rules
+- **`unified_chat.py`** — Extended vague-query stop-word list with `how`, `many`, and `there` to improve retrieval precision for aggregate questions (e.g. "how many assets are there")
+- **Pipeline cache enrichment** — Both DB-cache and memory-cache hits now attach live system tags to the result payload before streaming to the frontend, keeping tags in sync without a re-query
+
+### Technical Details
+
+- **New ORM models** — `System` (id, name, created_date, updated_date) and `ProductSystem` junction table for many-to-many product↔system relationship
+- **`ProductEOS` relationship** — `systems` back-populated via `product_system` association table; `to_dict()` now includes a `Systems` field
+- **New `ProductEOSRepo` methods** — `create_system`, `get_system_by_name`, `get_system_by_id`, `get_all_systems`, `add_system_to_product`, `remove_system_from_product`, `get_systems_by_product`, `get_products_by_systems`, `update_system`, `delete_system`
+- **DB schema verification** updated to include `system` and `product_system` tables
+
+---
+
+## [v1.3] — 2026-04-08
+
+> Gemini-powered Ask AI feature with multi-turn conversation management, database guardrails, EOS status indicators, and comprehensive prompt injection prevention.
+> **Status:** Production-ready with Beta label. Enhanced security hardening.
+
+### Added
+
+- **Prompt Injection Prevention System** — Multi-layered defense across backend, frontend, and data pipeline
+  - **Server-side chat validation** `is_suspicious_chat_input()` in `classes.py` detects 20+ injection patterns
+  - **Client-side validation** `detectPromptInjection()` in `app.js` blocks injections before server round-trip
+  - **Pattern detection** for context override, roleplay jailbreaks, credential requests, formatting attacks
+  - **Length & newline limits** prevent padding/encoding bypass attempts
+  - Suspicious inputs logged and blocked with user-friendly security warnings
+  - **Production impact:** Integrates seamlessly with existing RAG and vague query protections
+
+- **Input Sanitization & Response Validation**
+  - `sanitize_asset_name()` escapes XML/HTML special characters (`<`, `>`, `&`, `"`, `'`)
+  - `validate_eos_response()` enforces EOS response schema before persistence
+  - Confidence scores validated as float 0.0-1.0 range
+  - Support Model and Hardware/Software enums strictly enforced
+  - Response schema mismatch triggers retry or fallback to template
+
+- **Interactive CLI Test Interface** — `prompt.py` main() replaced with interactive session
+  - Accepts semicolon-separated asset names: `Dell PowerEdge R750; Windows Server 2019`
+  - Real-time processing with automatic retry (up to 3 attempts for failed items)
+  - Formatted result display with EOS date, confidence, support model, and source URLs
+  - Exit commands: `exit`, `quit`, `q` with keyboard interrupt support (Ctrl+C)
+  - Perfect for testing prompt injection patterns against Gemini backend
+
+- **Chat Security Enhancements**
+  - HTML escaping in chat bubbles (`escapeHtml()` utility)
+  - Token limit enforcement (1000 tokens) with 429 status on limit reached
+  - Warning threshold at 80% (800 tokens) in chat UI
+  - Injection-blocked messages shown in-chat with security explanation
+  - Unauthenticated chat access properly rejected with 401
+
+### Ask AI Chat Feature
+- Modal popup with Gemini logo button in file inspector toolbar
+- Natural language queries about EOS/EOL dates for IT assets
+- Uses Gemini's native web search capability for real-time information
+- **[PRODUCTION - Beta Status]**
 
 - **GeminiChatSession context management** — `GeminiChatSession` class in `unified_chat.py` for reliable conversation handling
   - Multi-turn conversation history with automatic persistence

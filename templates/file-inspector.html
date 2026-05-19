@@ -26,6 +26,8 @@
   <span>Ask AI <span style="font-size: 0.7em; opacity: 0.7;">(Beta)</span></span>
 </button>
 
+<a class="page-nav-fab page-fade-link" href="/system-overview" title="Go to system overview">To System Overview</a>
+
 <!-- AI Chat Popup Modal -->
 <div class="ai-chat-modal" id="aiChatModal">
   <div class="ai-chat-container">
@@ -184,7 +186,79 @@
 
   <div class="processing-summary" id="processingSummary"></div>
 
+  <!-- System Management Modal -->
+  <div class="modal" id="systemsModal" style="display:none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3>Manage Systems</h3>
+        <button class="modal-close" id="closeSystemsModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="systems-input-wrap">
+          <input type="text" id="newSystemInput" class="system-input" placeholder="Enter new system name...">
+          <button id="btnAddSystem" class="btn-system" type="button">Add System</button>
+        </div>
+        <div class="systems-list" id="systemsList"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Asset Tagging Modal -->
+  <div class="modal" id="tagAssetModal" style="display:none;">
+    <div class="modal-content modal-content-sm">
+      <div class="modal-header">
+        <h3>Tag Systems to Asset</h3>
+        <button class="modal-close" id="closeTagAssetModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="asset-name" id="tagAssetName"></div>
+        <div class="systems-checkbox-list" id="tagSystemsCheckboxList"></div>
+        <div class="modal-footer">
+          <button id="btnCancelTagAsset" class="btn-secondary" type="button">Cancel</button>
+          <button id="btnSaveTagAsset" class="btn-primary" type="button">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bulk Assign Modal -->
+  <div class="modal" id="bulkAssignModal" style="display:none;">
+    <div class="modal-content modal-content-sm">
+      <div class="modal-header">
+        <h3>Bulk Assign Systems</h3>
+        <button class="modal-close" id="closeBulkAssignModal">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div class="bulk-count" id="bulkCount"></div>
+        <div class="systems-checkbox-list" id="bulkSystemsCheckboxList"></div>
+        <div class="modal-footer">
+          <button id="btnCancelBulkAssign" class="btn-secondary" type="button">Cancel</button>
+          <button id="btnSaveBulkAssign" class="btn-primary" type="button">Assign</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div class="tables-container" id="tablesContainer">
+    <div class="table-controls">
+      <div class="table-actions">
+        <button class="btn-systems-mgmt" id="btnSystemsMgmt" type="button" title="Manage systems">
+          <span>⚙️</span>
+          <span>Systems</span>
+        </button>
+        <button class="btn-bulk-assign" id="btnBulkAssign" type="button" title="Bulk assign systems to selected assets" disabled>
+          <span>🏷️</span>
+          <span>Bulk Assign</span>
+        </button>
+        <div class="system-filter-wrap">
+          <label for="systemFilter">Filter by System:</label>
+          <select id="systemFilter" class="system-filter">
+            <option value="">All Systems</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
     <!-- Hardware Table -->
     <div class="table-section" id="hwTableSection" style="display:none;">
       <div class="table-header">
@@ -271,6 +345,30 @@
   const apiKeyToast = document.getElementById('apiKeyToast');
   const liveDateTime = document.getElementById('liveDateTime');
 
+  // System management elements
+  const systemsModal = document.getElementById('systemsModal');
+  const closeSystemsModal = document.getElementById('closeSystemsModal');
+  const btnSystemsMgmt = document.getElementById('btnSystemsMgmt');
+  const newSystemInput = document.getElementById('newSystemInput');
+  const btnAddSystem = document.getElementById('btnAddSystem');
+  const systemsList = document.getElementById('systemsList');
+  const systemFilter = document.getElementById('systemFilter');
+  const btnBulkAssign = document.getElementById('btnBulkAssign');
+
+  const tagAssetModal = document.getElementById('tagAssetModal');
+  const closeTagAssetModal = document.getElementById('closeTagAssetModal');
+  const btnCancelTagAsset = document.getElementById('btnCancelTagAsset');
+  const btnSaveTagAsset = document.getElementById('btnSaveTagAsset');
+  const tagAssetName = document.getElementById('tagAssetName');
+  const tagSystemsCheckboxList = document.getElementById('tagSystemsCheckboxList');
+
+  const bulkAssignModal = document.getElementById('bulkAssignModal');
+  const closeBulkAssignModal = document.getElementById('closeBulkAssignModal');
+  const btnCancelBulkAssign = document.getElementById('btnCancelBulkAssign');
+  const btnSaveBulkAssign = document.getElementById('btnSaveBulkAssign');
+  const bulkSystemsCheckboxList = document.getElementById('bulkSystemsCheckboxList');
+  const bulkCount = document.getElementById('bulkCount');
+
   const ALLOWED = ['.csv', '.xlsx'];
   
   // Initialize export button as disabled (only enabled when results exist)
@@ -288,6 +386,8 @@
   const tableTotals = { hw: 0, sw: 0 };
   const currentTableData = { hw: [], sw: [] };
   const pendingRefreshReviews = {};
+  let allSystems = [];
+  let activeTagProductId = null;
 
   // ── Live Date-Time Display ────────────────────────────────────────
   let lastFetchedTime = null;
@@ -472,6 +572,12 @@
     });
   }
 
+  function updateBulkAssignButtonState() {
+    if (!btnBulkAssign) return;
+    const selectedCount = document.querySelectorAll('.row-select:checked').length;
+    btnBulkAssign.disabled = selectedCount === 0;
+  }
+
   function renderCurrentTables(showPipeline = true) {
     const hasHW = currentTableData.hw.length > 0;
     const hasSW = currentTableData.sw.length > 0;
@@ -511,6 +617,8 @@
       pipelineActions.classList.remove('visible');
       btnExportIndividual.disabled = true;
     }
+
+    updateBulkAssignButtonState();
   }
 
   function routeManualResultToTable(itemDonePayload) {
@@ -689,6 +797,229 @@
     return true;
   }
 
+  async function loadSystems() {
+    try {
+      const res = await fetch('/api/systems');
+      if (!res.ok) return;
+      allSystems = await res.json();
+
+      if (systemFilter) {
+        const current = systemFilter.value;
+        systemFilter.innerHTML = '<option value="">All Systems</option>';
+        allSystems.forEach(system => {
+          const opt = document.createElement('option');
+          opt.value = String(system.id);
+          opt.textContent = `${system.name} (${system.asset_count})`;
+          systemFilter.appendChild(opt);
+        });
+        if (current) systemFilter.value = current;
+      }
+
+      if (systemsList) {
+        systemsList.innerHTML = allSystems.map(system => `
+          <div class="system-item">
+            <div class="system-main">
+              <div class="system-name">${escHtml(system.name)}</div>
+              <div class="system-count">${system.asset_count} asset${system.asset_count === 1 ? '' : 's'}</div>
+            </div>
+            <div class="system-actions">
+              <button type="button" class="btn-system-action btn-system-edit" data-system-id="${system.id}" data-system-name="${escHtml(system.name)}" title="Edit system">Edit</button>
+              <button type="button" class="btn-system-action btn-system-delete" data-system-id="${system.id}" data-system-name="${escHtml(system.name)}" title="Delete system">Delete</button>
+            </div>
+          </div>
+        `).join('');
+
+        systemsList.querySelectorAll('.btn-system-edit').forEach(btn => {
+          btn.addEventListener('click', async event => {
+            event.preventDefault();
+            const id = Number(btn.dataset.systemId || 0);
+            const currentName = btn.dataset.systemName || '';
+            if (!id) return;
+
+            const renamed = window.prompt('Rename system:', currentName);
+            if (renamed === null) return;
+            const nextName = renamed.trim();
+            if (!nextName || nextName === currentName) return;
+
+            try {
+              const res = await fetch(`/api/systems/${id}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: nextName })
+              });
+              const payload = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(payload.error || 'Rename failed');
+
+              ['hw', 'sw'].forEach(type => {
+                currentTableData[type] = currentTableData[type].map(row => {
+                  const systems = Array.isArray(row.Systems) ? row.Systems : [];
+                  const updatedSystems = systems.map(s => Number(s.id) === id ? { ...s, name: nextName } : s);
+                  return { ...row, Systems: updatedSystems };
+                });
+              });
+
+              await loadSystems();
+              renderCurrentTables(false);
+            } catch (err) {
+              showError(`Failed to rename system: ${err.message}`);
+            }
+          });
+        });
+
+        systemsList.querySelectorAll('.btn-system-delete').forEach(btn => {
+          btn.addEventListener('click', async event => {
+            event.preventDefault();
+            const id = Number(btn.dataset.systemId || 0);
+            const name = btn.dataset.systemName || 'this system';
+            if (!id) return;
+            if (!window.confirm(`Delete system "${name}"?`)) return;
+
+            try {
+              const res = await fetch(`/api/systems/${id}`, { method: 'DELETE' });
+              const payload = await res.json().catch(() => ({}));
+              if (!res.ok) throw new Error(payload.error || 'Delete failed');
+
+              ['hw', 'sw'].forEach(type => {
+                currentTableData[type] = currentTableData[type].map(row => {
+                  const systems = Array.isArray(row.Systems) ? row.Systems : [];
+                  const updatedSystems = systems.filter(s => Number(s.id) !== id);
+                  return { ...row, Systems: updatedSystems };
+                });
+              });
+
+              await loadSystems();
+              renderCurrentTables(false);
+            } catch (err) {
+              showError(`Failed to delete system: ${err.message}`);
+            }
+          });
+        });
+      }
+    } catch (_) {}
+  }
+
+  function renderSystemBadges(systems, productId) {
+    if (!Array.isArray(systems) || systems.length === 0) {
+      return '<span class="badge badge-system-empty" title="No systems assigned">—</span>';
+    }
+    const names = systems.map(s => s.name).join(', ');
+    const badges = systems.map(s => `<span class="badge badge-system">${escHtml(s.name)}</span>`).join('');
+    return `<span class="system-badge-wrap" title="${escHtml(names)}">${badges}</span>`;
+  }
+
+  async function untagSystemFromProduct(event, productId, systemId) {
+    event.stopPropagation();
+    const btn = event.target;
+    btn.disabled = true;
+    try {
+      const res = await fetch(`/api/products/${productId}/systems/${systemId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error('Failed to remove system');
+
+      // Update in-memory data and re-render just the systems cell
+      ['hw', 'sw'].forEach(type => {
+        if (!currentTableData[type]) return;
+        currentTableData[type] = currentTableData[type].map(row => {
+          if (Number(row.id) !== productId) return row;
+          return { ...row, Systems: (row.Systems || []).filter(s => Number(s.id) !== systemId) };
+        });
+      });
+
+      document.querySelectorAll(`tr[data-asset-id="${productId}"]`).forEach(rowEl => {
+        const systemsCell = rowEl.querySelector('.systems-cell');
+        if (!systemsCell) return;
+        const rowData = currentTableData.hw.find(r => Number(r.id) === productId)
+          || currentTableData.sw.find(r => Number(r.id) === productId);
+        const updatedSystems = rowData?.Systems || [];
+        systemsCell.innerHTML = updatedSystems.length > 0
+          ? renderSystemBadges(updatedSystems, productId)
+          : '<button type="button" class="btn-tag-system" style="margin:0;" data-id="' + productId + '" title="Add system" aria-label="Add system"><span class="plus-logo">+</span></button>';
+      });
+
+      await loadSystems();
+    } catch (err) {
+      btn.disabled = false;
+      console.error(err);
+    }
+  }
+
+  async function openTagAssetModal(productId, productName) {
+    if (!productId || !tagAssetModal) return;
+    activeTagProductId = Number(productId);
+    if (tagAssetName) tagAssetName.textContent = productName || 'Unknown asset';
+
+    try {
+      const res = await fetch(`/api/products/${activeTagProductId}/systems`);
+      const assigned = res.ok ? await res.json() : [];
+      const assignedSet = new Set((assigned || []).map(s => Number(s.id)));
+
+      tagSystemsCheckboxList.innerHTML = allSystems.map(system => `
+        <label class="checkbox-label">
+          <input type="checkbox" value="${system.id}" ${assignedSet.has(system.id) ? 'checked' : ''}>
+          <span>${escHtml(system.name)}</span>
+        </label>
+      `).join('');
+
+      tagAssetModal.classList.add('active');
+      tagAssetModal.style.display = 'flex';
+    } catch (err) {
+      showError('Failed to load systems for asset.');
+    }
+  }
+
+  async function saveAssetSystems() {
+    if (!activeTagProductId) return;
+    const checked = Array.from(tagSystemsCheckboxList.querySelectorAll('input[type="checkbox"]:checked'))
+      .map(el => Number(el.value));
+
+    try {
+      const curRes = await fetch(`/api/products/${activeTagProductId}/systems`);
+      const current = curRes.ok ? await curRes.json() : [];
+      const currentSet = new Set(current.map(s => Number(s.id)));
+
+      for (const sid of checked) {
+        if (!currentSet.has(sid)) {
+          await fetch(`/api/products/${activeTagProductId}/systems`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ system_id: sid })
+          });
+        }
+      }
+
+      for (const sid of currentSet) {
+        if (!checked.includes(sid)) {
+          await fetch(`/api/products/${activeTagProductId}/systems/${sid}`, { method: 'DELETE' });
+        }
+      }
+
+      const updatedSystems = allSystems
+        .filter(system => checked.includes(Number(system.id)))
+        .map(system => ({ id: Number(system.id), name: system.name }));
+
+      ['hw', 'sw'].forEach(type => {
+        currentTableData[type] = currentTableData[type].map(row =>
+          Number(row.id) === activeTagProductId ? { ...row, Systems: updatedSystems } : row
+        );
+      });
+
+      document.querySelectorAll(`tr[data-asset-id="${activeTagProductId}"]`).forEach(rowEl => {
+        const systemsCell = rowEl.querySelector('.systems-cell');
+        if (!systemsCell) return;
+        if (updatedSystems.length > 0) {
+          systemsCell.innerHTML = renderSystemBadges(updatedSystems, activeTagProductId);
+        } else {
+          systemsCell.innerHTML = '<button type="button" class="btn-tag-system" style="margin:0;" title="Add system" aria-label="Add system"><span class="plus-logo">+</span></button>';
+        }
+      });
+
+      tagAssetModal.classList.remove('active');
+      tagAssetModal.style.display = 'none';
+      await loadSystems();
+    } catch (err) {
+      showError('Failed to save systems for asset.');
+    }
+  }
+
   function renderTable(data, headElement, bodyElement, type) {
     if (!data || data.length === 0) return false;
 
@@ -699,7 +1030,7 @@
     // Create header with only at-a-glance columns
     headElement.innerHTML = '';
     const hr = document.createElement('tr');
-    ['', '', 'Name', 'Type', 'EOS Date', 'Confidence', ''].forEach((h, index) => {
+    ['', '', 'Name', 'Type', 'EOS Date', 'Confidence', 'Systems', ''].forEach((h, index) => {
       const th = document.createElement('th');
       if (index === 0) {
         const selectAll = document.createElement('input');
@@ -717,6 +1048,7 @@
           lastToggledRow[typeLabel] = null;
           updateTableMeta(typeLabel);
           syncSelectAllState(typeLabel);
+          updateBulkAssignButtonState();
         });
         th.appendChild(selectAll);
       } else {
@@ -760,6 +1092,7 @@
         lastToggledRow[typeLabel] = rowIndex;
         updateTableMeta(typeLabel);
         syncSelectAllState(typeLabel);
+        updateBulkAssignButtonState();
       });
       tdSelect.appendChild(selectInput);
       tr.appendChild(tdSelect);
@@ -767,7 +1100,6 @@
       // Chevron cell
       const tdChevron = document.createElement('td');
       tdChevron.innerHTML = '<span class="row-chevron">▶</span>';
-      tdChevron.style.width = '30px';
       tr.appendChild(tdChevron);
       
       // Name cell with inline edit
@@ -858,6 +1190,27 @@
       `;
       tr.appendChild(tdConfidence);
 
+      // Systems cell
+      const tdSystems = document.createElement('td');
+      tdSystems.className = 'systems-cell';
+      const systems = row.Systems || [];
+      if (systems.length > 0) {
+        tdSystems.innerHTML = renderSystemBadges(systems, row.id);
+      } else {
+        tdSystems.innerHTML = '<button type="button" class="btn-tag-system" style="margin:0;" data-id="' + (row.id || '') + '" data-name="' + row.Name + '" data-type="' + typeLabel + '" title="Add system" aria-label="Add system"><span class="plus-logo">+</span></button>';
+      }
+      tdSystems.style.cursor = 'pointer';
+      tdSystems.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const productId = Number(tr.getAttribute('data-asset-id') || row.id || 0);
+        if (!productId) {
+          showError('Run the AI pipeline first so this asset is saved before assigning systems.');
+          return;
+        }
+        openTagAssetModal(productId, row.Name, typeLabel);
+      });
+      tr.appendChild(tdSystems);
+
       // Status cell (spinner / check / error) — populated by pipeline
       const tdStatus = document.createElement('td');
       tdStatus.className = 'status-cell';
@@ -866,11 +1219,42 @@
         <div class="row-spinner" id="spinner-${typeLabel}-${i}"></div>
         <span class="row-status-icon" id="icon-${typeLabel}-${i}"></span>
       `;
+
+      const statusMeta = row.__status;
+      if (statusMeta && statusMeta.state === 'done') {
+        const icon = tdStatus.querySelector('.row-status-icon');
+        if (icon) {
+          let iconChar = '✓';
+          let iconColor = '#2ecc71';
+          let iconTitle = 'Processed by AI (fresh)';
+          if (statusMeta.cachedFrom === 'database') {
+            iconChar = '◈';
+            iconColor = '#ff9800';
+            iconTitle = 'Retrieved from database — click to refresh from API';
+          } else if (statusMeta.cachedFrom === 'memory') {
+            iconChar = '◈';
+            iconColor = '#cba6f7';
+            iconTitle = 'Cached in memory — click to refresh from API';
+          }
+          icon.textContent = iconChar;
+          icon.style.color = iconColor;
+          icon.title = iconTitle;
+          icon.classList.add('visible');
+        }
+      } else if (statusMeta && statusMeta.state === 'error') {
+        const icon = tdStatus.querySelector('.row-status-icon');
+        if (icon) {
+          icon.textContent = '✕';
+          icon.style.color = '#ff5c38';
+          icon.classList.add('visible');
+        }
+      }
       tr.appendChild(tdStatus);
       
       // Click handler for expansion
       tr.addEventListener('click', e => {
         if (e.target.closest('.status-cell')) return;
+        if (e.target.closest('.systems-cell')) return;
         toggleRow(tr, bodyElement, row, typeLabel, i);
       });
       tr.addEventListener('keydown', event => {
@@ -889,7 +1273,7 @@
       expandTr.style.display = 'none';
       
       const expandTd = document.createElement('td');
-      expandTd.colSpan = 7;
+      expandTd.colSpan = 8;
       
       // Build the expanded content
       const summary = row.Summary || '';
@@ -1117,6 +1501,8 @@
     editedNames.sw = {};
     manualAutoRunActive = false;
     _manualFirstResultDone = false;
+    if (btnBulkAssign) btnBulkAssign.disabled = true;
+    if (systemFilter) systemFilter.value = '';
     // Reset pipeline button and timer
     stopTimer();
     pipelineTimerValue.textContent = '00:00.0';
@@ -1207,6 +1593,131 @@
     resetBox.classList.add('visible');
   }
 
+  async function createSystemFromInput() {
+    const name = (newSystemInput?.value || '').trim();
+    if (!name) return;
+    try {
+      const res = await fetch('/api/systems', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name })
+      });
+      if (!res.ok) throw new Error('Failed to create system');
+      newSystemInput.value = '';
+      await loadSystems();
+    } catch (_) {
+      showError('Unable to create system.');
+    }
+  }
+
+  async function applySystemFilter() {
+    const selectedSystem = systemFilter?.value || '';
+    if (!selectedSystem) {
+      renderCurrentTables();
+      return;
+    }
+
+    try {
+      const res = await fetch(`/api/products?systems=${encodeURIComponent(selectedSystem)}`);
+      if (!res.ok) throw new Error('Filter failed');
+      const products = await res.json();
+      const ids = new Set(products.map(p => Number(p.id)).filter(Boolean));
+      const filteredHW = currentTableData.hw.filter(row => ids.has(Number(row.id)));
+      const filteredSW = currentTableData.sw.filter(row => ids.has(Number(row.id)));
+
+      hwTableHead.innerHTML = '';
+      hwTableBody.innerHTML = '';
+      swTableHead.innerHTML = '';
+      swTableBody.innerHTML = '';
+
+      if (filteredHW.length > 0) {
+        renderTable(filteredHW, hwTableHead, hwTableBody, 'hw');
+        hwTableSection.style.display = 'block';
+      } else {
+        hwTableSection.style.display = 'none';
+      }
+
+      if (filteredSW.length > 0) {
+        renderTable(filteredSW, swTableHead, swTableBody, 'sw');
+        swTableSection.style.display = 'block';
+      } else {
+        swTableSection.style.display = 'none';
+      }
+    } catch (_) {
+      showError('Failed to filter by system.');
+    }
+  }
+
+  async function saveBulkSystemAssignments() {
+    const checked = Array.from(bulkSystemsCheckboxList.querySelectorAll('input[type="checkbox"]:checked'))
+      .map(el => Number(el.value));
+    if (checked.length === 0) {
+      bulkAssignModal.classList.remove('active');
+      bulkAssignModal.style.display = 'none';
+      return;
+    }
+
+    const selectedIds = new Set();
+    document.querySelectorAll('.row-select:checked').forEach(checkbox => {
+      const assetId = Number(checkbox.dataset.assetId || 0);
+      if (assetId > 0) selectedIds.add(assetId);
+    });
+
+    if (selectedIds.size === 0) {
+      showError('Only saved assets can be assigned to systems. Run pipeline first.');
+      return;
+    }
+
+    try {
+      for (const productId of selectedIds) {
+        for (const systemId of checked) {
+          await fetch(`/api/products/${productId}/systems`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ system_id: systemId })
+          });
+        }
+      }
+
+      const selectedSystemObjects = allSystems
+        .filter(system => checked.includes(Number(system.id)))
+        .map(system => ({ id: Number(system.id), name: system.name }));
+
+      ['hw', 'sw'].forEach(type => {
+        currentTableData[type] = currentTableData[type].map(row => {
+          if (!selectedIds.has(Number(row.id))) return row;
+          const existing = Array.isArray(row.Systems) ? row.Systems : [];
+          const merged = [...existing];
+          selectedSystemObjects.forEach(sys => {
+            if (!merged.some(x => Number(x.id) === Number(sys.id))) merged.push(sys);
+          });
+          return { ...row, Systems: merged };
+        });
+      });
+
+      selectedIds.forEach(productId => {
+        const rowData = currentTableData.hw.find(r => Number(r.id) === Number(productId))
+          || currentTableData.sw.find(r => Number(r.id) === Number(productId));
+        const systemsForRow = Array.isArray(rowData?.Systems) ? rowData.Systems : [];
+        document.querySelectorAll(`tr[data-asset-id="${productId}"]`).forEach(rowEl => {
+          const systemsCell = rowEl.querySelector('.systems-cell');
+          if (!systemsCell) return;
+          if (systemsForRow.length > 0) {
+            systemsCell.innerHTML = renderSystemBadges(systemsForRow, productId);
+          } else {
+            systemsCell.innerHTML = '<button type="button" class="btn-tag-system" style="margin:0;" title="Add system" aria-label="Add system"><span class="plus-logo">+</span></button>';
+          }
+        });
+      });
+
+      bulkAssignModal.classList.remove('active');
+      bulkAssignModal.style.display = 'none';
+      await loadSystems();
+    } catch (_) {
+      showError('Failed to apply bulk system assignment.');
+    }
+  }
+
   window.addEventListener('load', () => {
     // Initialize theme from localStorage
     const savedTheme = localStorage.getItem('theme') || 'dark';
@@ -1215,6 +1726,7 @@
       themeIcon.textContent = '☀️';
       themeLabel.textContent = 'light';
     }
+    loadSystems();
   });
 
   // Theme toggle handler
@@ -1229,6 +1741,92 @@
       themeIcon.textContent = '🌙';
       themeLabel.textContent = 'dark';
       localStorage.setItem('theme', 'dark');
+    }
+  });
+
+  if (btnSystemsMgmt) {
+    btnSystemsMgmt.addEventListener('click', () => {
+      systemsModal.classList.add('active');
+      systemsModal.style.display = 'flex';
+    });
+  }
+
+  if (closeSystemsModal) {
+    closeSystemsModal.addEventListener('click', () => {
+      systemsModal.classList.remove('active');
+      systemsModal.style.display = 'none';
+    });
+  }
+
+  if (btnAddSystem) btnAddSystem.addEventListener('click', createSystemFromInput);
+  if (newSystemInput) {
+    newSystemInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        createSystemFromInput();
+      }
+    });
+  }
+
+  if (systemFilter) systemFilter.addEventListener('change', applySystemFilter);
+
+  if (btnBulkAssign) {
+    btnBulkAssign.addEventListener('click', () => {
+      const selectedCount = document.querySelectorAll('.row-select:checked').length;
+      if (selectedCount === 0) return;
+      bulkCount.textContent = `Assign systems to ${selectedCount} selected asset${selectedCount === 1 ? '' : 's'}`;
+      bulkSystemsCheckboxList.innerHTML = allSystems.map(system => `
+        <label class="checkbox-label">
+          <input type="checkbox" value="${system.id}">
+          <span>${escHtml(system.name)}</span>
+        </label>
+      `).join('');
+      bulkAssignModal.classList.add('active');
+      bulkAssignModal.style.display = 'flex';
+    });
+  }
+
+  if (closeTagAssetModal) {
+    closeTagAssetModal.addEventListener('click', () => {
+      tagAssetModal.classList.remove('active');
+      tagAssetModal.style.display = 'none';
+    });
+  }
+  if (btnCancelTagAsset) {
+    btnCancelTagAsset.addEventListener('click', () => {
+      tagAssetModal.classList.remove('active');
+      tagAssetModal.style.display = 'none';
+    });
+  }
+  if (btnSaveTagAsset) btnSaveTagAsset.addEventListener('click', saveAssetSystems);
+
+  if (closeBulkAssignModal) {
+    closeBulkAssignModal.addEventListener('click', () => {
+      bulkAssignModal.classList.remove('active');
+      bulkAssignModal.style.display = 'none';
+    });
+  }
+  if (btnCancelBulkAssign) {
+    btnCancelBulkAssign.addEventListener('click', () => {
+      bulkAssignModal.classList.remove('active');
+      bulkAssignModal.style.display = 'none';
+    });
+  }
+  if (btnSaveBulkAssign) btnSaveBulkAssign.addEventListener('click', saveBulkSystemAssignments);
+
+  [systemsModal, tagAssetModal, bulkAssignModal].forEach(modal => {
+    if (!modal) return;
+    modal.addEventListener('click', e => {
+      if (e.target === modal) {
+        modal.classList.remove('active');
+        modal.style.display = 'none';
+      }
+    });
+  });
+
+  document.addEventListener('change', e => {
+    if (e.target && e.target.classList && e.target.classList.contains('row-select')) {
+      updateBulkAssignButtonState();
     }
   });
 
@@ -1649,7 +2247,15 @@
     }
 
     if (currentTableData[type] && currentTableData[type][index] !== undefined) {
-      currentTableData[type][index] = { ...result };
+      const prev = currentTableData[type][index] || {};
+      currentTableData[type][index] = {
+        ...prev,
+        ...result,
+        __status: {
+          state: 'done',
+          cachedFrom: cachedFrom
+        }
+      };
     }
 
     // EOS Date column
@@ -1693,6 +2299,17 @@
           </div>
           <span class="confidence-score">${c.toFixed(2)}</span>
         </div>`;
+    }
+
+    // Systems column
+    const tdSystems = tr.cells[6];
+    if (tdSystems) {
+      const systems = Array.isArray(result.Systems) ? result.Systems : [];
+      if (systems.length > 0) {
+        tdSystems.innerHTML = renderSystemBadges(systems, assetId);
+      } else {
+        tdSystems.innerHTML = '<button type="button" class="btn-tag-system" style="margin:0;" title="Add system" aria-label="Add system"><span class="plus-logo">+</span></button>';
+      }
     }
 
     // Update the expand row content with the full AI result
@@ -1747,6 +2364,16 @@
     const icon    = document.getElementById(`icon-${type}-${index}`);
     if (spinner) spinner.classList.remove('active');
     if (icon)    { icon.textContent = '✕'; icon.style.color = '#ff5c38'; icon.classList.add('visible'); }
+
+    if (currentTableData[type] && currentTableData[type][index] !== undefined) {
+      const prev = currentTableData[type][index] || {};
+      currentTableData[type][index] = {
+        ...prev,
+        __status: {
+          state: 'error'
+        }
+      };
+    }
   }
 
   // ── Pipeline trigger ──────────────────────────────────────────────────────
@@ -2094,6 +2721,32 @@
   } else {
     initAIChat();
   }
+
+  // Smooth page transition for route navigation
+  (function initPageFadeTransitions() {
+    document.body.classList.add('page-fade');
+    requestAnimationFrame(() => {
+      document.body.classList.add('page-fade-in');
+    });
+
+    document.addEventListener('click', event => {
+      const link = event.target.closest('a.page-fade-link');
+      if (!link || !link.href) return;
+
+      try {
+        const targetUrl = new URL(link.href, window.location.href);
+        if (targetUrl.origin !== window.location.origin) return;
+      } catch (_) {
+        return;
+      }
+
+      event.preventDefault();
+      document.body.classList.add('page-fade-out');
+      setTimeout(() => {
+        window.location.href = link.href;
+      }, 180);
+    });
+  })();
 
 </script>
 </body>

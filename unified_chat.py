@@ -127,7 +127,8 @@ def is_vague_query(user_query: str) -> bool:
     _STOP = {
         'for', 'the', 'and', 'what', 'when', 'does', 'is', 'are',
         'will', 'has', 'have', 'end', 'of', 'support', 'about',
-        'can', 'you', 'tell', 'me', 'show', 'give', 'please'
+        'can', 'you', 'tell', 'me', 'show', 'give', 'please',
+        'how', 'many', 'there'
     }
     tokens = [t for t in query_lower.replace('/', ' ').replace('-', ' ').split() if len(t) > 2 and t not in _STOP]
     specific_tokens = [t for t in tokens if t not in generic_terms]
@@ -153,9 +154,20 @@ def is_vague_query(user_query: str) -> bool:
 
 
 def retrieve_relevant_products(user_query: str, limit: int = 10, session_override=None) -> str:
-    """Retrieve relevant products from database based on user query keywords."""
+    """
+    Retrieve relevant products from database based on user query keywords.
+    
+    STRATEGY: Only return EXACT name/keyword matches to the database.
+    No fallback to random/unrelated products.
+    This ensures accuracy over quantity.
+    """
     _session = session_override or db_session
+    session_type = 'override' if session_override else 'module-level'
+    session_valid = _session is not None
+    print(f"   [retrieve] Session: {session_type} | Valid: {session_valid} | DBSession obj: {type(db_session).__name__}", flush=True)
+    
     if not _session:
+        print(f"   [retrieve] ERROR: No valid session!", flush=True)
         return "Database not initialized"
     
     print(f"📄 Retrieving relevant data...", end=" ", flush=True)
@@ -173,53 +185,42 @@ def retrieve_relevant_products(user_query: str, limit: int = 10, session_overrid
 
         query_lower = user_query.lower()
         
-        # ── 1. Name-based search first ─────────────────────────────────────
-        # Extract meaningful tokens (>2 chars, skip common stop words)
+        # Extract meaningful tokens for name-based search (>2 chars, skip only generic words)
         _STOP = {'for', 'the', 'and', 'what', 'when', 'does', 'is', 'are',
-                 'will', 'has', 'have', 'eol', 'eos', 'end', 'life', 'of',
-                 'support', 'date', 'about', 'can', 'you', 'tell', 'me'}
-        tokens = [t for t in query_lower.split() if len(t) > 2 and t not in _STOP]
+                 'will', 'has', 'have', 'about', 'can', 'you', 'tell', 'me',
+                 'any', 'all', 'with', 'from', 'to', 'in', 'on', 'at', 'by'}
+        tokens = [t.strip('?!.,;:') for t in query_lower.split() if len(t) > 2 and t.strip('?!.,;:') not in _STOP]
+        tokens = [t for t in tokens if len(t) > 2]  # Remove any that became too short after stripping
         
-        name_results = []
+        print(f"Search tokens: {tokens}", flush=True)
+        
+        results = []
         if tokens:
+            # Build name filters for each token
             name_filters = [func.lower(ProductEOS.name).contains(token) for token in tokens]
-            name_results = (
-                _session.query(ProductEOS)
-                .filter(or_(*name_filters))
-                .order_by(ProductEOS.eos_date.asc())
-                .limit(limit)
-                .all()
-            )
+            if name_filters:
+                # Query products matching ANY token
+                candidates = (
+                    _session.query(ProductEOS)
+                    .filter(or_(*name_filters))
+                    .all()
+                )
+                
+                # Score each candidate by how many tokens it matches
+                scored_results = []
+                for product in candidates:
+                    product_name_lower = product.name.lower()
+                    match_count = sum(1 for token in tokens if token in product_name_lower)
+                    scored_results.append((match_count, product.confidence, product))
+                
+                # Sort by: number of tokens matched (desc), then confidence (desc)
+                scored_results.sort(key=lambda x: (x[0], x[1]), reverse=True)
+                
+                # Take top results
+                results = [product for _, _, product in scored_results[:limit]]
+                print(f"Match scores - Top 3: {[(m, c) for m, c, _ in scored_results[:3]]}", flush=True)
         
-        # ── 2. Fall back to type/recency filtered list ──────────────────────
-        is_hardware = any(word in query_lower for word in ['hardware', 'cpu', 'processor', 'memory', 'server'])
-        is_software = any(word in query_lower for word in ['software', 'windows', 'linux', 'sql', 'os'])
-        is_recent = any(word in query_lower for word in ['recent', 'latest', 'newest'])
-        is_oldest = any(word in query_lower for word in ['oldest', 'first'])
-        
-        fallback_query = _session.query(ProductEOS)
-        if is_hardware:
-            fallback_query = fallback_query.filter(ProductEOS.hardware_software == 'Hardware')
-        elif is_software:
-            fallback_query = fallback_query.filter(ProductEOS.hardware_software == 'Software')
-        if is_oldest:
-            fallback_query = fallback_query.order_by(ProductEOS.eos_date.asc())
-        elif is_recent:
-            fallback_query = fallback_query.order_by(ProductEOS.eos_date.desc())
-        else:
-            fallback_query = fallback_query.order_by(ProductEOS.eos_date.asc())
-        fallback_results = fallback_query.limit(limit).all()
-        
-        # Merge: name matches first, then fill with fallback (deduplicated)
-        seen_ids = {p.id for p in name_results}
-        combined = list(name_results)
-        for p in fallback_results:
-            if p.id not in seen_ids:
-                combined.append(p)
-                seen_ids.add(p.id)
-        results = combined[:limit]
-        
-        print(f"✓ ({len(results)} products)")
+        print(f"✓ Matches: {len(results)}")
         
         if not results:
             return "No matching products found in the database."
@@ -503,6 +504,38 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
         Returns:
             dict with 'success', 'response', and metadata
         """
+        from classes import Helper
+        print(f"\n💬 Processing query: {user_message[:80]}", flush=True)
+        
+        # Step 0: Detect prompt injection attempts
+        is_suspicious, reason = Helper.is_suspicious_chat_input(user_message)
+        if is_suspicious:
+            injection_response = f"⚠️ Suspicious input detected: {reason}. Please ask a legitimate question about product EOS/EOL dates."
+            print(f"⚠️ [Security] Blocked suspicious chat input: {reason}")
+            print(f"   Message: {user_message[:100]}")
+            
+            # Add to history for logging
+            self.conversation_history.append({
+                "role": "user",
+                "content": user_message
+            })
+            self.conversation_history.append({
+                "role": "assistant",
+                "content": injection_response
+            })
+            self.conversation_tokens += (len(user_message) + len(injection_response)) // 4
+            
+            return {
+                'success': True,
+                'response': injection_response,
+                'backend': 'Security-Filter',
+                'blocked_suspicious_input': True,
+                'reason': reason,
+                'tokens_used': self.estimated_tokens_used,
+                'history_length': len(self.conversation_history),
+                'conversation_tokens': self.conversation_tokens
+            }
+        
         # Step 1: Add user message to history
         self.conversation_history.append({
             "role": "user",
@@ -514,7 +547,9 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
         # Step 2: Check if query is too vague (trying to get bulk data)
         context = ""
         if use_rag:
+            print(f"   RAG enabled, checking if query is vague...", flush=True)
             if is_vague_query(user_message):
+                print(f"   ⚠ Query deemed vague, skipping RAG", flush=True)
                 # Refuse to retrieve database for vague queries
                 vague_response = "I can only provide lifecycle information for a specific, named asset. Please provide the name of the asset you'd like to look up."
                 
@@ -539,7 +574,9 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
                 }
             else:
                 # Retrieve database context for specific queries - limit to 3 products max
+                print(f"   Retrieving from DB (session override: {self._db_session_override is not None})", flush=True)
                 context = retrieve_relevant_products(user_message, limit=3, session_override=self._db_session_override)
+                print(f"   Context retrieved: {len(context)} chars, first 100: {context[:100]}", flush=True)
         
         # Step 3: Send to Gemini
         result = self._send_gemini(user_message, context)
@@ -596,6 +633,7 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
                 # Build message with strict grounding rules when DB context exists.
                 message_to_send = user_message
                 if context and context != "No matching products found in the database.":
+                    print(f"   ✓ Using DB context ({len(context)} chars)")
                     message_to_send = (
                         "Use ONLY the database context below as source of truth for asset existence and lifecycle dates. "
                         "If products are listed in the context, do NOT claim they are missing from the database. "
@@ -603,6 +641,8 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
                         f"Context from database:\\n{context}\\n\\n"
                         f"User question:\\n{user_message}"
                     )
+                else:
+                    print(f"   ⚠ No DB context to use")
                 
                 response = self.gemini_chat.send_message(message_to_send)
                 
