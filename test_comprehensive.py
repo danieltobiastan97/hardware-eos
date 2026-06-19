@@ -435,7 +435,7 @@ class TestHelperPreprocess:
         f = _make_csv(tmp_path / "test.csv",
                       [("Dell R750", "Windows Server 2022"),
                        ("Cisco 3650", "Adobe Acrobat 2024")])
-        hw, sw = Helper().preprocess(f)
+        hw, sw = Helper.preprocess(f)
         assert "Dell R750" in hw
         assert "Windows Server 2022" in sw
 
@@ -443,7 +443,7 @@ class TestHelperPreprocess:
         from classes import Helper
         f = _make_csv(tmp_path / "hw.csv",
                       [("Dell R750", ""), ("HP DL380", "")])
-        hw, sw = Helper().preprocess(f)
+        hw, sw = Helper.preprocess(f)
         assert len(hw) == 2
         assert len(sw) == 0
 
@@ -453,7 +453,7 @@ class TestHelperPreprocess:
                       [("Dell R750", "Win 2022"),
                        ("Dell R750", "Win 2022"),
                        ("Dell R750", "Win 2022")])
-        hw, sw = Helper().preprocess(f)
+        hw, sw = Helper.preprocess(f)
         assert hw.count("Dell R750") == 1
         assert sw.count("Win 2022") == 1
 
@@ -461,7 +461,7 @@ class TestHelperPreprocess:
         from classes import Helper
         f = _make_csv(tmp_path / "spaces.csv",
                       [("  Dell R750  ", "  Windows Server  ")])
-        hw, sw = Helper().preprocess(f)
+        hw, sw = Helper.preprocess(f)
         assert "Dell R750" in hw
         assert "Windows Server" in sw
 
@@ -469,7 +469,7 @@ class TestHelperPreprocess:
         from classes import Helper
         f = _make_csv(tmp_path / "empties.csv",
                       [("", ""), ("   ", "    "), ("Real HW", "Real SW")])
-        hw, sw = Helper().preprocess(f)
+        hw, sw = Helper.preprocess(f)
         assert len(hw) == 1 and hw[0] == "Real HW"
         assert len(sw) == 1 and sw[0] == "Real SW"
 
@@ -477,34 +477,34 @@ class TestHelperPreprocess:
         from classes import Helper
         f = _make_csv(tmp_path / "wrong.csv",
                       [("Val1", "Val2")], headers=("Model", "Version"))
-        hw, sw = Helper().preprocess(f)
+        hw, sw = Helper.preprocess(f)
         assert hw == [] and sw == []
 
     def test_headers_only_returns_empty(self, tmp_path):
         from classes import Helper
         f = _make_csv(tmp_path / "hdrs_only.csv", [])
-        hw, sw = Helper().preprocess(f)
+        hw, sw = Helper.preprocess(f)
         assert hw == [] and sw == []
 
     def test_large_file(self, tmp_path):
         from classes import Helper
         rows = [(f"HW {i}", f"SW {i}") for i in range(500)]
         f = _make_csv(tmp_path / "large.csv", rows)
-        hw, sw = Helper().preprocess(f)
+        hw, sw = Helper.preprocess(f)
         assert len(hw) == 500 and len(sw) == 500
 
     # ── Break attempts ──────────────────────────────────────────────────────
 
     def test_nonexistent_file_returns_empty(self):
         from classes import Helper
-        hw, sw = Helper().preprocess("/totally/fake/path/file.csv")
+        hw, sw = Helper.preprocess("/totally/fake/path/file.csv")
         assert hw == [] and sw == []
 
     def test_csv_with_sql_injection_values(self, tmp_path):
         from classes import Helper
         f = _make_csv(tmp_path / "inject.csv",
                       [("'; DROP TABLE product_eos; --", "1' OR '1'='1")])
-        hw, sw = Helper().preprocess(f)
+        hw, sw = Helper.preprocess(f)
         assert len(hw) == 1
         assert "DROP TABLE" in hw[0]
 
@@ -512,7 +512,7 @@ class TestHelperPreprocess:
         from classes import Helper
         f = _make_csv(tmp_path / "html.csv",
                       [("<script>alert(1)</script>", "<b>bold</b>")])
-        hw, sw = Helper().preprocess(f)
+        hw, sw = Helper.preprocess(f)
         assert len(hw) == 1
         assert "<script>" in hw[0]
 
@@ -1101,3 +1101,4 @@ class TestParseSelectedIndices:
         if resp.status_code == 200:
             body = resp.data.decode("utf-8")
             assert "error" in body or "pipeline-error" in body
+

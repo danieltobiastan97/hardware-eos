@@ -23,7 +23,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 warnings.filterwarnings("ignore", message=".*thought_signature.*")
 
 # Import database models
-from models import ProductEOS, SupportTier, assetCache, Base
+from models import ProductEOS, SupportTier, assetCache, Base, System
 from prompt import keys_and_prompt_setup, client_setup, Spinner, chat_client_setup
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -103,7 +103,96 @@ Table: support_tier (related to product_eos via product_id)
 - tier (String) - Name of support tier
 - end_date (Date) - End date for this tier
 - created_date (DateTime)
+
+Table: system
+- id (Integer, Primary Key)
+- name (String, Unique)
+- created_date (DateTime)
+- updated_date (DateTime)
+
+Table: product_system (many-to-many junction)
+- product_id (Integer, Foreign Key -> product_eos.id)
+- system_id (Integer, Foreign Key -> system.id)
+- created_date (DateTime)
 """
+
+
+def _normalize_for_match(value: str) -> str:
+    """Normalize text for tolerant matching (e.g., 7.03 vs 7.0.3)."""
+    if not value:
+        return ""
+    return re.sub(r"[^a-z0-9]", "", value.lower())
+
+
+def _extract_query_tokens(user_query: str) -> List[str]:
+    """Extract meaningful query tokens while keeping version-like tokens."""
+    _STOP = {
+        'for', 'the', 'and', 'what', 'when', 'does', 'is', 'are',
+        'will', 'has', 'have', 'about', 'can', 'you', 'tell', 'me',
+        'any', 'all', 'with', 'from', 'to', 'in', 'on', 'at', 'by',
+        'which', 'that', 'this', 'use', 'uses', 'using', 'system', 'systems'
+    }
+    tokens = [t.strip('?!.,;:()[]{}\"\'') for t in user_query.lower().split()]
+    tokens = [t for t in tokens if t and (len(t) > 2 or any(ch.isdigit() for ch in t)) and t not in _STOP]
+    return tokens
+
+
+def _score_products_against_tokens(products: List[ProductEOS], tokens: List[str]) -> List[ProductEOS]:
+    """Score products by normalized token overlap against product name."""
+    if not products or not tokens:
+        return []
+
+    scored = []
+    normalized_tokens = [_normalize_for_match(t) for t in tokens if _normalize_for_match(t)]
+    for product in products:
+        product_name_normalized = _normalize_for_match(product.name)
+        match_count = sum(1 for token in normalized_tokens if token in product_name_normalized)
+        if match_count > 0:
+            scored.append((match_count, product.confidence, product))
+
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    return [p for _, _, p in scored]
+
+
+def _is_system_usage_question(user_query: str) -> bool:
+    """Detect questions asking which systems use a specific asset."""
+    q = user_query.lower()
+    count_like = ("how many" in q and "system" in q)
+    list_like = ("what systems" in q) or ("which systems" in q)
+    use_like = (" use " in f" {q} ") or (" uses " in f" {q} ") or (" using " in f" {q} ")
+    return (count_like or list_like) and use_like
+
+
+def _answer_system_usage_question(user_query: str, session_override=None) -> Optional[str]:
+    """Deterministically answer system-usage questions from DB relationships."""
+    _session = session_override or db_session
+    if not _session:
+        return None
+
+    try:
+        tokens = _extract_query_tokens(user_query)
+        all_products = _session.query(ProductEOS).all()
+        ranked_products = _score_products_against_tokens(all_products, tokens)
+        if not ranked_products:
+            return None
+
+        target_product = ranked_products[0]
+        systems = sorted([s.name for s in target_product.systems], key=lambda x: x.lower())
+
+        if not systems:
+            return (
+                f"I found **{target_product.name}** in the database, but it is currently tagged to **0 systems**."
+            )
+
+        lines = [
+            f"**{target_product.name}** is used by **{len(systems)} system(s)**:",
+            "",
+        ]
+        for system_name in systems:
+            lines.append(f"- {system_name}")
+        return "\n".join(lines)
+    except Exception:
+        return None
 
 
 def is_vague_query(user_query: str) -> bool:
@@ -185,40 +274,27 @@ def retrieve_relevant_products(user_query: str, limit: int = 10, session_overrid
 
         query_lower = user_query.lower()
         
-        # Extract meaningful tokens for name-based search (>2 chars, skip only generic words)
-        _STOP = {'for', 'the', 'and', 'what', 'when', 'does', 'is', 'are',
-                 'will', 'has', 'have', 'about', 'can', 'you', 'tell', 'me',
-                 'any', 'all', 'with', 'from', 'to', 'in', 'on', 'at', 'by'}
-        tokens = [t.strip('?!.,;:') for t in query_lower.split() if len(t) > 2 and t.strip('?!.,;:') not in _STOP]
-        tokens = [t for t in tokens if len(t) > 2]  # Remove any that became too short after stripping
+        tokens = _extract_query_tokens(query_lower)
         
         print(f"Search tokens: {tokens}", flush=True)
         
         results = []
         if tokens:
-            # Build name filters for each token
-            name_filters = [func.lower(ProductEOS.name).contains(token) for token in tokens]
-            if name_filters:
-                # Query products matching ANY token
-                candidates = (
-                    _session.query(ProductEOS)
-                    .filter(or_(*name_filters))
-                    .all()
-                )
-                
-                # Score each candidate by how many tokens it matches
-                scored_results = []
-                for product in candidates:
-                    product_name_lower = product.name.lower()
-                    match_count = sum(1 for token in tokens if token in product_name_lower)
-                    scored_results.append((match_count, product.confidence, product))
-                
-                # Sort by: number of tokens matched (desc), then confidence (desc)
-                scored_results.sort(key=lambda x: (x[0], x[1]), reverse=True)
-                
-                # Take top results
-                results = [product for _, _, product in scored_results[:limit]]
-                print(f"Match scores - Top 3: {[(m, c) for m, c, _ in scored_results[:3]]}", flush=True)
+            # 1) Fast DB pre-filter on raw tokens.
+            name_filters = [func.lower(ProductEOS.name).contains(token) for token in tokens if len(token) > 2]
+            candidates = (
+                _session.query(ProductEOS)
+                .filter(or_(*name_filters))
+                .all()
+            ) if name_filters else []
+
+            # 2) If no candidates (e.g., punctuation mismatch), score across all products.
+            if not candidates:
+                candidates = _session.query(ProductEOS).all()
+
+            scored_products = _score_products_against_tokens(candidates, tokens)
+            results = scored_products[:limit]
+            print(f"Match scores - Top 3 count: {[len(_extract_query_tokens(p.name)) for p in results[:3]]}", flush=True)
         
         print(f"✓ Matches: {len(results)}")
         
@@ -232,6 +308,11 @@ def retrieve_relevant_products(user_query: str, limit: int = 10, session_overrid
             context += f"   Summary: {product.summary}\n"
             context += f"   EOS Date: {product.eos_date.isoformat()}\n"
             context += f"   Confidence: {product.confidence * 100:.0f}%\n"
+            if getattr(product, 'systems', None):
+                system_names = [s.name for s in product.systems]
+                context += f"   Systems: {', '.join(system_names)}\n"
+            else:
+                context += "   Systems: None\n"
             
             if product.support_tiers:
                 context += f"   Support Tiers:\n"
@@ -547,6 +628,29 @@ FORMATTING REQUIREMENTS (ALWAYS APPLY):
         # Step 2: Check if query is too vague (trying to get bulk data)
         context = ""
         if use_rag:
+            # Deterministic path for system-usage questions (count + list systems).
+            if _is_system_usage_question(user_message):
+                deterministic_answer = _answer_system_usage_question(
+                    user_message,
+                    session_override=self._db_session_override
+                )
+                if deterministic_answer:
+                    self.conversation_history.append({
+                        "role": "assistant",
+                        "content": deterministic_answer
+                    })
+                    self.conversation_tokens += len(deterministic_answer) // 4
+                    self._save_history()
+                    return {
+                        'success': True,
+                        'response': deterministic_answer,
+                        'backend': 'RAG-SystemUsage',
+                        'context_used': True,
+                        'tokens_used': self.estimated_tokens_used,
+                        'history_length': len(self.conversation_history),
+                        'conversation_tokens': self.conversation_tokens
+                    }
+
             print(f"   RAG enabled, checking if query is vague...", flush=True)
             if is_vague_query(user_message):
                 print(f"   ⚠ Query deemed vague, skipping RAG", flush=True)

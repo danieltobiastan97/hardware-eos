@@ -495,8 +495,7 @@ def upload():
     
     try:
         # Process using the preprocess function from Helper class
-        processor = Helper()
-        hw_list, sw_list = processor.preprocess(file_path, sheet='Asset List')
+        hw_list, sw_list = Helper.preprocess(file_path, sheet='Asset List')
         
         elapsed_time = time.time() - start_time
         

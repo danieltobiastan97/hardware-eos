@@ -4,11 +4,10 @@ import os
 import pandas as pd
 import datetime
 import time
+import html
 
 class Helper:
-    def __init__(self):
-        pass  # Initialize any required variables here
-
+    @staticmethod
     def parse_llm_json(response_string):
         """
         Finds and parses a JSON object from a string, stripping any markdown fences.
@@ -36,14 +35,7 @@ class Helper:
     @staticmethod
     def sanitize_asset_name(name):
         """Escape XML/HTML special chars to prevent tag breakout and injection attacks."""
-        if not isinstance(name, str):
-            name = str(name)
-        name = name.replace("&", "&amp;")
-        name = name.replace("<", "&lt;")
-        name = name.replace(">", "&gt;")
-        name = name.replace('"', "&quot;")
-        name = name.replace("'", "&#39;")
-        return name
+        return html.escape(str(name), quote=True)
 
     @staticmethod
     def validate_eos_response(response):
@@ -165,7 +157,8 @@ class Helper:
 
     """
     Preprocesses the Excel or CSV file to extract hardware and software lists."""
-    def preprocess(self, filename, sheet='Asset List'):
+    @staticmethod
+    def preprocess(filename, sheet='Asset List'):
         time_start = time.time()
         print(f'Starting Preprocessing for: {filename}...')
         
@@ -229,9 +222,7 @@ class Helper:
         return [], []
 
 class Cleaner:
-    def __init__(self):
-        pass  # Initialize any required variables here
-
+    @staticmethod
     def clean_text_to_unique(df_array) -> pd.Series: 
         """helper functions to convert to lower case and strip whitespace, drop na and nils"""
         df = df_array.str.lower().str.strip()
@@ -241,22 +232,9 @@ class Cleaner:
         return lst.unique()
 
 class Processing:
-    def __init__(self):
-        pass  # Initialize any required variables here
-
-    def to_table(df_series):
-        """
-        Converts a Series of JSON objects to a DataFrame.
-        """
-        # Convert each JSON object in the Series to a DataFrame
-        df = pd.DataFrame(df_series.tolist())
-        return df
-    
+    @staticmethod
     def check_eos(row):
-        if row['Time to EOS'] < 0:
-            return "Yes"
-        else:
-            return "No"
+        return "Yes" if row['Time to EOS'] < 0 else "No"
 
     def return_eos(df):
         today = datetime.date.today()
@@ -341,9 +319,6 @@ class Processing:
             return None
         
 class chatbot():
-    def __init__(self):
-        pass  # Initialize any required variables here
-
     def persistent_chat(self, user_input, chat_history):
         
         # call the LLM with the user input and chat history
