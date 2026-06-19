@@ -11,5 +11,14 @@ Confidence Rules:
 0.4: Aggregator/Community (Max limit if Aggregator only)
 0.0: Conflicts, inference, dead URLs
 
+Support Tiers (Lifecycle Milestones):
+Find and list key support phase end dates (if available):
+- For Software: Mainstream Support end date, Extended Support end date, etc.
+- For Hardware: Regular Support end date, Extended Support end date, Specialized Support end date, etc.
+Each tier should have: {"Tier":"<name>", "EndDate":"YYYY-MM-DD"}
+If only one EOL/EOS date found, use that as Mainstream/Regular Support end date.
+If multiple phases found (e.g., Premier/Mainstream/Extended), populate all.
+If no milestone data available, use empty array [].
+
 Schema:
 {"Name":str,"Summary":str,"Hardware/Software":"Hardware"|"Software"|"Unknown","Support Model":"Fixed"|"Rolling"|"Version-Based"|"NA","EOS Date":"YYYY-MM-DD"|"Rolling Support"|"No EOS found"|"NA","Support Tiers":[{"Tier":str,"EndDate":"YYYY-MM-DD"}],"Source URLs":[str],"Confidence":num}
