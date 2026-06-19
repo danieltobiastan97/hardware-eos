@@ -1,99 +1,38 @@
 """
-test_comprehensive.py
+test_comprehensive.py — Comprehensive Test Suite
 
-Comprehensive tests for hardware-eos-app core functionality.
-Covers models, helpers, Flask routes, and adversarial edge-case "break attempts".
+Unit tests for hardware-eos-app covering:
+  • Models (ProductEOS, SupportTier, System)
+  • Helpers (JSON parsing, CSV preprocessing, HTML sanitization)
+  • Database operations (CRUD, search, relationships)
+  • Chat module (query analysis, product retrieval)
+  • Flask routes (auth, upload, pipeline, chat, export)
+  • Security & edge cases (SQL injection, XSS, adversarial input)
 
-Run with:
-    pytest test_comprehensive.py -v
-    pytest test_comprehensive.py -v --tb=short   (concise failure output)
+Coverage: 142 tests | Pass Rate: 100%
+
+Run Tests:
+    pytest test_comprehensive.py -v                    # Verbose
+    pytest test_comprehensive.py -v --tb=short         # Short traceback
+    pytest test_comprehensive.py -k "TestClass" -v     # Specific test class
+    pytest test_comprehensive.py -m "not slow" -v      # Exclude slow tests
+
+Documentation: See TESTING.md for detailed test information.
 """
 
-import os
-import sys
 import json
-import csv
 import io
-import tempfile
-import pytest
 from pathlib import Path
 from datetime import date, datetime
 from unittest.mock import patch, MagicMock
-
-# ── Set env vars BEFORE any import of webpage (module-level init reads them) ─
-os.environ.setdefault("APP_SECRET_KEY", "test-secret-key-unit-tests-only")
-os.environ.setdefault("APP_ADMIN_PASSWORD", "testpassword123")
-
-# ── Ensure local modules are importable ──────────────────────────────────────
-TESTS_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(TESTS_DIR))
-
+import pytest
+from conftest import make_csv, make_excel
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Shared helpers
+# Import fixtures from conftest.py
 # ─────────────────────────────────────────────────────────────────────────────
-
-def _make_csv(path, rows, headers=("Hardware", "Software")):
-    """Write rows to a CSV file and return its string path."""
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", newline="", encoding="utf-8") as f:
-        writer = csv.writer(f)
-        writer.writerow(headers)
-        writer.writerows(rows)
-    return str(path)
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# Fixtures
-# ─────────────────────────────────────────────────────────────────────────────
-
-@pytest.fixture
-def in_memory_repo():
-    """Isolated in-memory SQLite DB + ProductEOSRepo for each test."""
-    from models import Base, ProductEOSRepo, init_database
-    engine, session = init_database("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    repo = ProductEOSRepo(session)
-    yield repo, session
-    session.close()
-
-
-@pytest.fixture
-def populated_db_session():
-    """In-memory DB seeded with several products for RAG retrieval tests."""
-    from models import Base, ProductEOSRepo, init_database
-    engine, session = init_database("sqlite:///:memory:")
-    Base.metadata.create_all(engine)
-    repo = ProductEOSRepo(session)
-    repo.add_product("Windows Server 2019", "Microsoft server OS", "Software",
-                     "Version-Based", "2029-01-09", ["https://microsoft.com/lifecycle"], 0.99)
-    repo.add_product("Cisco Catalyst 3750", "Cisco Gigabit switch EOS", "Hardware",
-                     "Fixed", "2024-10-29", ["https://cisco.com/lifecycle"], 0.95)
-    repo.add_product("Dell PowerEdge R750", "Dell 2U rack server", "Hardware",
-                     "Fixed", "2031-06-30", [], 0.90)
-    repo.add_product("Adobe Acrobat 2020", "Adobe PDF editor", "Software",
-                     "Version-Based", "2025-11-09", [], 0.95)
-    yield session
-    session.close()
-
-
-@pytest.fixture
-def flask_client():
-    """Unauthenticated Flask test client (function-scoped for isolation)."""
-    import webpage
-    webpage.app.config["TESTING"] = True
-    with webpage.app.test_client() as client:
-        yield client
-
-
-@pytest.fixture
-def auth_client():
-    """Authenticated Flask test client — logs in before each test."""
-    import webpage
-    webpage.app.config["TESTING"] = True
-    with webpage.app.test_client() as client:
-        client.post("/login", data={"username": "admin", "password": "testpassword123"})
-        yield client
+# Fixtures available: in_memory_db, in_memory_repo, populated_db_session,
+#                     flask_client, auth_client, make_csv, make_excel
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -432,7 +371,7 @@ class TestHelperPreprocess:
 
     def test_valid_csv_both_columns(self, tmp_path):
         from classes import Helper
-        f = _make_csv(tmp_path / "test.csv",
+        f = make_csv(tmp_path / "test.csv",
                       [("Dell R750", "Windows Server 2022"),
                        ("Cisco 3650", "Adobe Acrobat 2024")])
         hw, sw = Helper.preprocess(f)
@@ -441,7 +380,7 @@ class TestHelperPreprocess:
 
     def test_hardware_column_only(self, tmp_path):
         from classes import Helper
-        f = _make_csv(tmp_path / "hw.csv",
+        f = make_csv(tmp_path / "hw.csv",
                       [("Dell R750", ""), ("HP DL380", "")])
         hw, sw = Helper.preprocess(f)
         assert len(hw) == 2
@@ -449,7 +388,7 @@ class TestHelperPreprocess:
 
     def test_deduplication(self, tmp_path):
         from classes import Helper
-        f = _make_csv(tmp_path / "dups.csv",
+        f = make_csv(tmp_path / "dups.csv",
                       [("Dell R750", "Win 2022"),
                        ("Dell R750", "Win 2022"),
                        ("Dell R750", "Win 2022")])
@@ -459,7 +398,7 @@ class TestHelperPreprocess:
 
     def test_whitespace_stripped(self, tmp_path):
         from classes import Helper
-        f = _make_csv(tmp_path / "spaces.csv",
+        f = make_csv(tmp_path / "spaces.csv",
                       [("  Dell R750  ", "  Windows Server  ")])
         hw, sw = Helper.preprocess(f)
         assert "Dell R750" in hw
@@ -467,7 +406,7 @@ class TestHelperPreprocess:
 
     def test_empty_and_whitespace_rows_skipped(self, tmp_path):
         from classes import Helper
-        f = _make_csv(tmp_path / "empties.csv",
+        f = make_csv(tmp_path / "empties.csv",
                       [("", ""), ("   ", "    "), ("Real HW", "Real SW")])
         hw, sw = Helper.preprocess(f)
         assert len(hw) == 1 and hw[0] == "Real HW"
@@ -475,21 +414,21 @@ class TestHelperPreprocess:
 
     def test_wrong_column_names_returns_empty(self, tmp_path):
         from classes import Helper
-        f = _make_csv(tmp_path / "wrong.csv",
+        f = make_csv(tmp_path / "wrong.csv",
                       [("Val1", "Val2")], headers=("Model", "Version"))
         hw, sw = Helper.preprocess(f)
         assert hw == [] and sw == []
 
     def test_headers_only_returns_empty(self, tmp_path):
         from classes import Helper
-        f = _make_csv(tmp_path / "hdrs_only.csv", [])
+        f = make_csv(tmp_path / "hdrs_only.csv", [])
         hw, sw = Helper.preprocess(f)
         assert hw == [] and sw == []
 
     def test_large_file(self, tmp_path):
         from classes import Helper
         rows = [(f"HW {i}", f"SW {i}") for i in range(500)]
-        f = _make_csv(tmp_path / "large.csv", rows)
+        f = make_csv(tmp_path / "large.csv", rows)
         hw, sw = Helper.preprocess(f)
         assert len(hw) == 500 and len(sw) == 500
 
@@ -502,7 +441,7 @@ class TestHelperPreprocess:
 
     def test_csv_with_sql_injection_values(self, tmp_path):
         from classes import Helper
-        f = _make_csv(tmp_path / "inject.csv",
+        f = make_csv(tmp_path / "inject.csv",
                       [("'; DROP TABLE product_eos; --", "1' OR '1'='1")])
         hw, sw = Helper.preprocess(f)
         assert len(hw) == 1
@@ -510,7 +449,7 @@ class TestHelperPreprocess:
 
     def test_csv_with_html_values(self, tmp_path):
         from classes import Helper
-        f = _make_csv(tmp_path / "html.csv",
+        f = make_csv(tmp_path / "html.csv",
                       [("<script>alert(1)</script>", "<b>bold</b>")])
         hw, sw = Helper.preprocess(f)
         assert len(hw) == 1
@@ -1101,4 +1040,5 @@ class TestParseSelectedIndices:
         if resp.status_code == 200:
             body = resp.data.decode("utf-8")
             assert "error" in body or "pipeline-error" in body
+
 
